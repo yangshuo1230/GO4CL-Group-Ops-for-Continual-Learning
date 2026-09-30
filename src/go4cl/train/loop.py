@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
 import torch
@@ -12,13 +12,15 @@ from tqdm import tqdm
 from go4cl.metrics.behavioral import EvalResult, evaluate
 from go4cl.model.transformer import ModularTransformer
 from go4cl.utils.checkpoint import save_checkpoint
+from go4cl.utils.wandb_log import log_wandb
 
 
 @dataclass
 class TrainConfig:
     lr: float = 1e-3
     weight_decay: float = 1.0
-    batch_size: int = 128
+    # None / <=0 => full-batch (batch_size = dataset length)
+    batch_size: int | None = None
     max_steps: int = 2000
     eval_every: int = 100
     ckpt_every: int = 500
@@ -29,7 +31,6 @@ class TrainConfig:
 @dataclass
 class TrainState:
     step: int = 0
-    history: list[dict[str, Any]] = field(default_factory=list)
     best_val_acc: float = 0.0
 
 
@@ -83,15 +84,29 @@ def train_steps(
         if step % log_every == 0:
             pbar.set_postfix(loss=float(loss.item()))
 
-        record: dict[str, Any] = {"step": step, "train_loss": float(loss.item())}
-        if eval_loaders and step % cfg.eval_every == 0:
-            for name, loader in eval_loaders.items():
+        record: dict[str, Any] | None = None
+        do_eval = bool(eval_loaders) and step % cfg.eval_every == 0
+        if step % log_every == 0 or do_eval:
+            with torch.no_grad():
+                preds = out["logits"].argmax(dim=-1)
+                train_acc = float((preds == labels).float().mean().item())
+            record = {
+                "step": step,
+                "train_loss": float(loss.item()),
+                "train_acc": train_acc,
+            }
+
+        if do_eval:
+            assert record is not None
+            for name, loader in eval_loaders.items():  # type: ignore[union-attr]
                 result: EvalResult = evaluate(model, loader, device)
                 record[f"{name}_loss"] = result.loss
                 record[f"{name}_acc"] = result.accuracy
                 if name.endswith("val") or name == "val":
                     state.best_val_acc = max(state.best_val_acc, result.accuracy)
-            state.history.append(record)
+
+        if record is not None:
+            log_wandb(record, step=step)
 
         if ckpt_dir and step % cfg.ckpt_every == 0:
             save_checkpoint(

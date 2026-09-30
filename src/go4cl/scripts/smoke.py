@@ -152,6 +152,7 @@ def run_smoke(args) -> None:
         ),
         model_seed=0,
         phase_steps=10 if quick else 20,
+        wandb_enabled=False,
     )
     report["checks"]["joint_short"] = {
         "metrics_keys": sorted(joint.metrics.keys()),
@@ -174,6 +175,7 @@ def run_smoke(args) -> None:
         ),
         model_seed=0,
         phase_steps=10 if quick else 20,
+        wandb_enabled=False,
     )
     report["checks"]["sequential_ab_short"] = {
         "has_forgetting": "forgetting_A" in seq.metrics,

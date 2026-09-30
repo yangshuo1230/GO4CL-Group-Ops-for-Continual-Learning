@@ -23,6 +23,7 @@ def run_train(args) -> None:
         ckpt_every=max(args.steps // 2, 1),
         device=device,
     )
+    wandb_enabled = not bool(getattr(args, "no_wandb", False))
     result = run_protocol(
         args.protocol,
         args.data,
@@ -31,8 +32,14 @@ def run_train(args) -> None:
         train_cfg=train_cfg,
         model_seed=args.model_seed,
         phase_steps=args.steps,
+        wandb_enabled=wandb_enabled,
+        wandb_project=getattr(args, "wandb_project", "go4cl"),
+        wandb_name=getattr(args, "wandb_name", None),
+        wandb_mode=getattr(args, "wandb_mode", None),
     )
     print(f"protocol={result.protocol}")
+    if result.wandb_url:
+        print(f"wandb: {result.wandb_url}")
     for k, v in sorted(result.metrics.items()):
         if isinstance(v, float):
             print(f"  {k}: {v:.4f}")

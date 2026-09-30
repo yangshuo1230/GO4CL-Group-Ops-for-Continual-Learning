@@ -9,13 +9,13 @@ model:
 train:
   lr: 0.001
   weight_decay: 1.0
-  batch_size: 128
+  batch_size: null  # full-batch
   max_steps: 10000
   eval_every: 200
   ckpt_every: 1000
   grad_clip: 1.0
 
 data:
-  n_aliases_per_pair: 2
-  n_nuisance_contexts: 1
+  n_aliases_per_pair: 16
+  n_nuisance_contexts: 4
   split_ratios: [0.6, 0.2, 0.2]

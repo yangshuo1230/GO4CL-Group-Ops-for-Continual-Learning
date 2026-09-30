@@ -15,3 +15,4 @@ data/
 *.pt
 .pytest_cache/
 .ruff_cache/
+wandb/

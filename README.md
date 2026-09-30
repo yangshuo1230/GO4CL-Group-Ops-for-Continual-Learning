@@ -1,67 +1,67 @@
 # GO4CL
 
 Transformer continual-learning experiments on structured modular-addition tasks.
+Plan:
 
-This repository implements the initial engineering framework for the research plan:
-task specs with controlled A/B overlaps, fixed residue-pair datasets, a small
-decoder-only Transformer, and training protocols (A-only / B-only / joint /
-interleaved / sequential).
+- [`docs/RESEARCH_EXPERIMENT_PLAN.md`](docs/RESEARCH_EXPERIMENT_PLAN.md) — 总体科学计划
+- [`docs/EXPERIMENT_PROGRESS.md`](docs/EXPERIMENT_PROGRESS.md) — **分阶段进度表**（标注状态）
+- [`docs/PHASE_STEP_GUIDE.md`](docs/PHASE_STEP_GUIDE.md) — 每个阶段/步骤的具体内容
 
-## Setup (uv)
+## Setup
 
 ```bash
-# install uv if needed: curl -LsSf https://astral.sh/uv/install.sh | sh
 cd GO4CL
 uv sync
+uv run wandb login
 ```
 
-Uses `torch==2.6.0+cu124` (matches driver CUDA 12.4 on this cluster).
-## Quick start
+## Task gist
 
-```bash
-# engineering smoke checks (data split, overfit, short train, joint/sequential wiring)
-uv run go4cl smoke --out runs/smoke --quick
-
-# generate a fixed A/B dataset
-uv run go4cl generate-data \
-  --out data/s1_o1_m1_seed0 \
-  --rho-slot 1 --rho-operand 1 --rho-mod 1 \
-  --task-seed 0 --data-seed 0
-
-# train a protocol
-uv run go4cl train \
-  --data data/s1_o1_m1_seed0 \
-  --out runs/a_only \
-  --protocol a_only \
-  --steps 1000
-```
+- Input digits: **0–63** (64 tokens); plus `<TASK_A/B>` and `<Q_0..3>` → vocab **70**.
+- Sequence: 8 digits + task + query → predict \((x_i+x_j)\bmod p\) (31-way head).
+- Residue-pair train/val/test splits; expand with `n_aliases` × `n_nuisance`.
 
 ## Layout
 
 ```text
-src/go4cl/
-  constants.py          # vocab, moduli, sequence layout
-  tasks/                # Operation, TaskSpec, A/B overlap construction
-  data/                 # residue-pair splits, fixed datasets, loaders
-  model/                # decoder-only causal Transformer (3×64 default)
-  train/                # training loop + protocols
-  metrics/              # loss / accuracy / forgetting
-  analysis/             # (stub) Fourier / probes / patching
-  scripts/              # CLI implementations
-configs/                # default + smoke YAML
-tests/                  # unit tests for splits, relations, model
+scripts/phase1/          # launchers for stage-1 steps
+configs/phase1/          # default hyperparams
+src/go4cl/phases/        # phase1 / phase2 / phase3 code
+runs/phase1/calibrate/   # outputs (gitignored)
+runs/phase1/scan_moduli/
+docs/
+tests/
 ```
 
-## Design notes (aligned with the plan)
+进度与步骤说明：
 
-- Input: 8 digits + `<TASK>` + `<Q_k>` → predict `(x_i + x_j) mod p` (31-way head).
-- Residues are split at the unordered pair level so aliases cannot leak across splits.
-- Ops form a perfect matching on the 8 positions; A/B overlaps are controlled on
-  slot / operand / modulus factors in `{0, 0.5, 1}`.
-- Scientific experiments should only start after smoke checks pass.
+```text
+docs/EXPERIMENT_PROGRESS.md   # 勾选/标注进度
+docs/PHASE_STEP_GUIDE.md      # 各步骤做什么
+docs/RESEARCH_EXPERIMENT_PLAN.md
+```
 
-## Tests
+## Phase CLI
 
 ```bash
+# Phase 1A prelude — calibrate on p=17
+bash scripts/phase1/calibrate.sh --gpus 4,5 --workers-per-gpu 2
+
+# Phase 1A — modulus scan (after locking train_frac / weight_decay)
+bash scripts/phase1/scan_moduli.sh \
+  --train-frac 0.6 --weight-decay 0.3 --steps 100000 --gpus 4,5
+
+# Stubs: phase1 multi-op | mechanisms ; phase2 * ; phase3 *
+uv run go4cl phase1 --help
+```
+
+Outputs land under `runs/phaseN/<step>/`.
+
+## Engineering
+
+```bash
+uv run go4cl smoke --quick
+uv run go4cl generate-data --out data/demo --rho-slot 1 --rho-operand 1 --rho-mod 1
+uv run go4cl train --data data/demo --out runs/tmp --protocol a_only --steps 1000
 uv run pytest -q
 ```

@@ -57,29 +57,55 @@ class Operation:
 
 @dataclass(frozen=True)
 class TaskSpec:
-    """Four operations forming a perfect matching on the eight input positions."""
+    """One-to-four operations. Full tasks (4 ops) must be a perfect matching."""
 
     name: str
     task_id: int  # 0 -> TASK_A token, 1 -> TASK_B token
     operations: tuple[Operation, ...]
 
     def __post_init__(self) -> None:
-        if len(self.operations) != NUM_LATENT_OPS:
-            raise ValueError(f"expected {NUM_LATENT_OPS} ops, got {len(self.operations)}")
+        n = len(self.operations)
+        if not (1 <= n <= NUM_LATENT_OPS):
+            raise ValueError(f"expected 1..{NUM_LATENT_OPS} ops, got {n}")
+
         slots = [op.slot for op in self.operations]
-        if sorted(slots) != list(range(NUM_QUERIES)):
-            raise ValueError(f"slots must be a permutation of 0..3, got {slots}")
+        if len(set(slots)) != n:
+            raise ValueError(f"slots must be unique, got {slots}")
+        if any(s < 0 or s >= NUM_QUERIES for s in slots):
+            raise ValueError(f"slots out of range: {slots}")
+
         latents = [op.latent_id for op in self.operations]
-        if sorted(latents) != list(LATENT_OPS):
-            raise ValueError(f"latent ids must be a permutation of 0..3, got {latents}")
+        if len(set(latents)) != n:
+            raise ValueError(f"latent ids must be unique, got {latents}")
+
         used: list[int] = []
         for op in self.operations:
             used.extend([op.i, op.j])
-        if sorted(used) != list(range(SEQ_LEN_OPERANDS)):
+        if len(used) != len(set(used)):
             raise ValueError(
-                "operations must form a perfect matching on positions 0..7; "
+                "operand positions must not overlap across ops; "
                 f"got positions {sorted(used)}"
             )
+
+        # Full 4-op scientific tasks keep the original hard constraints.
+        if n == NUM_LATENT_OPS:
+            if sorted(slots) != list(range(NUM_QUERIES)):
+                raise ValueError(f"slots must be a permutation of 0..3, got {slots}")
+            if sorted(latents) != list(LATENT_OPS):
+                raise ValueError(f"latent ids must be a permutation of 0..3, got {latents}")
+            if sorted(used) != list(range(SEQ_LEN_OPERANDS)):
+                raise ValueError(
+                    "operations must form a perfect matching on positions 0..7; "
+                    f"got positions {sorted(used)}"
+                )
+
+    @property
+    def n_ops(self) -> int:
+        return len(self.operations)
+
+    @property
+    def is_single_op(self) -> bool:
+        return self.n_ops == 1
 
     @property
     def task_token(self) -> int:
@@ -92,7 +118,7 @@ class TaskSpec:
         return {op.latent_id: op for op in self.operations}
 
     def moduli(self) -> tuple[int, ...]:
-        return tuple(self.by_slot()[s].modulus for s in range(NUM_QUERIES))
+        return tuple(op.modulus for op in sorted(self.operations, key=lambda o: o.slot))
 
     def evaluate_slot(self, x: Sequence[int], slot: int) -> int:
         return self.by_slot()[slot].evaluate(x)
