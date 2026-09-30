@@ -38,20 +38,16 @@ def init_wandb(
 
 
 def define_train_metrics() -> None:
-    """Make W&B charts share a common step axis.
-
-    W&B only allows glob *suffixes* (e.g. ``train_*``), not mid-string globs
-    like ``*_val_*``.
-    """
+    """Optional metric grouping. X-axis is W&B's built-in log step (not a metric)."""
     import wandb
 
     if wandb.run is None:
         return
-    wandb.define_metric("step")
-    wandb.define_metric("train_*", step_metric="step")
-    wandb.define_metric("A_val_*", step_metric="step")
-    wandb.define_metric("B_val_*", step_metric="step")
-    wandb.define_metric("final/*", step_metric="step")
+    # No custom step_metric — avoid logging a redundant ``step`` series/chart.
+    wandb.define_metric("train_*")
+    wandb.define_metric("A_val_*")
+    wandb.define_metric("B_val_*")
+    wandb.define_metric("final/*")
 
 
 def log_wandb(metrics: dict[str, Any], *, step: int | None = None) -> None:
@@ -59,19 +55,20 @@ def log_wandb(metrics: dict[str, Any], *, step: int | None = None) -> None:
 
     if wandb.run is None:
         return
-    payload = {k: v for k, v in metrics.items() if isinstance(v, (int, float))}
+    if step is None and "step" in metrics and isinstance(metrics["step"], (int, float)):
+        step = int(metrics["step"])
+    payload = {
+        k: v
+        for k, v in metrics.items()
+        if k != "step" and isinstance(v, (int, float))
+    }
     if not payload:
         return
-    if step is None and "step" in metrics:
-        step = int(metrics["step"])
-    if step is not None:
-        payload.setdefault("step", int(step))
     wandb.log(payload, step=step)
     # Keep latest values visible as run-table columns.
     if wandb.run is not None:
         for k, v in payload.items():
-            if k != "step":
-                wandb.run.summary[k] = v
+            wandb.run.summary[k] = v
 
 
 def finish_wandb() -> None:

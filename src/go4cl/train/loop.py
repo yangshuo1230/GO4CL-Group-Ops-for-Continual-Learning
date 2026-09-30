@@ -116,7 +116,6 @@ def train_steps(
                     val_accs[name] = result.accuracy
             if val_accs:
                 score = sum(val_accs.values()) / len(val_accs)
-                record["val_score"] = score
                 if score > state.best_val_acc:
                     state.best_val_acc = score
                     state.best_step = step
@@ -135,7 +134,6 @@ def train_steps(
                             },
                         )
                         state.best_ckpt_path = best_path
-                    record["is_best"] = 1.0
                     record["best_val_acc"] = score
                     record["best_step"] = step
                 else:
