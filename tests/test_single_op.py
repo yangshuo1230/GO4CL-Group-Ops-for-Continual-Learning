@@ -15,11 +15,11 @@ from go4cl.tasks.spec import TaskSpec
 
 
 def test_single_op_task_ok() -> None:
-    task = build_single_op_task(17, slot=2, i=3, j=5)
+    task = build_single_op_task(31, slot=2, i=3, j=5)
     assert task.is_single_op
     assert task.n_ops == 1
-    assert task.moduli() == (17,)
-    assert task.by_slot()[2].modulus == 17
+    assert task.moduli() == (31,)
+    assert task.by_slot()[2].modulus == 31
 
 
 def test_full_task_still_requires_perfect_matching() -> None:
@@ -40,7 +40,7 @@ def test_single_op_pair_all_moduli(p: int) -> None:
 
 
 def test_single_op_dataset_generation(tmp_path: Path) -> None:
-    pair = build_single_op_pair(17, task_seed=0)
+    pair = build_single_op_pair(31, task_seed=0)
     ratios = ratios_from_train_frac(0.6)
     manifest, datasets = generate_task_datasets(
         pair,
@@ -58,7 +58,7 @@ def test_single_op_dataset_generation(tmp_path: Path) -> None:
     slots = {e.slot for e in datasets["A"]["train"]}
     assert len(slots) == 1
     mods = {e.modulus for e in datasets["A"]["train"]}
-    assert mods == {17}
+    assert mods == {31}
     save_datasets(tmp_path, manifest, datasets)
     assert (tmp_path / "manifest.json").exists()
     assert (tmp_path / "A" / "train.npz").exists()

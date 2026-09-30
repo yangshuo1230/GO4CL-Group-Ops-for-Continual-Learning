@@ -7,8 +7,8 @@ NUM_DIGITS = 64  # tokens 0..63
 SEQ_LEN_OPERANDS = 8
 CONTEXT_LENGTH = 10  # 8 operands + TASK + QUERY
 
-# Output vocabulary: classes 0..30 inclusive
-NUM_OUTPUT_CLASSES = 31
+# Output vocabulary: classes 0..46 inclusive (covers max modulus 47)
+NUM_OUTPUT_CLASSES = 47
 MAX_OUTPUT = NUM_OUTPUT_CLASSES - 1
 
 # Task and query special tokens (appended after digit tokens 0..63)
@@ -30,12 +30,12 @@ QUERY_TOKEN_IDS = (TOKEN_Q0, TOKEN_Q1, TOKEN_Q2, TOKEN_Q3)
 VOCAB_SIZE = NUM_DIGITS + NUM_TASKS + NUM_QUERIES  # 70
 
 # Primary modulus set (pairwise coprime primes, no multiples)
-PRIMES: tuple[int, ...] = (7, 11, 13, 17, 19, 23, 29, 31)
+PRIMES: tuple[int, ...] = (19, 23, 29, 31, 37, 41, 43, 47)
 MODULUS_PAIRS: tuple[tuple[int, int], ...] = (
-    (7, 11),
-    (13, 17),
     (19, 23),
     (29, 31),
+    (37, 41),
+    (43, 47),
 )
 
 # Default residue-pair split ratios (approx.); small moduli prioritize coverage

@@ -1,8 +1,12 @@
 """Phase 1A prelude: grokking regime calibration on a medium modulus.
 
-Sweeps train residue-pair fraction × weight decay (and optional steps),
-with a fixed single-op task. Lock one training config before the full
-8-modulus scan.
+Sweeps split hyperparams × weight decay (and optional steps), with a fixed
+single-op task. Lock one training config before the full 8-modulus scan.
+
+Split modes (exactly one):
+  --train-fracs                           fixed train/val/test ratios (default)
+  --n-train-pairs / --n-train-pairs-grid  fixed train residue-pair count
+Default: --train-fracs 0.4 0.6 0.8.
 """
 
 from __future__ import annotations
@@ -15,77 +19,24 @@ from go4cl.constants import PRIMES
 from go4cl.phases.common import (
     TrainJob,
     assign_gpus,
-    ratios_from_train_frac,
     resolve_gpus,
     run_job_pool,
     stamp,
     write_report,
 )
+from go4cl.phases.phase1.data import DEFAULT_BATCH_SIZE, prepare_single_op_dataset
 
 
-# Medium prime from the plan set {7,11,13,17,19,23,29,31}
-DEFAULT_CALIB_MODULUS = 17
+# Medium prime from the plan set {19,23,29,31,37,41,43,47}
+DEFAULT_CALIB_MODULUS = 31
 DEFAULT_TRAIN_FRACS: tuple[float, ...] = (0.4, 0.6, 0.8)
 DEFAULT_WEIGHT_DECAYS: tuple[float, ...] = (0.1, 0.3, 1.0)
 
 
-def _prepare_single_op_dataset(
-    out: Path,
-    *,
-    modulus: int,
-    train_frac: float,
-    n_aliases: int,
-    n_nuisance: int,
-    task_seed: int,
-    data_seed: int,
-) -> dict[str, Any]:
-    from go4cl.data.generate import generate_task_datasets, save_datasets
-    from go4cl.data.manifest import DataManifest
-    from go4cl.data.residue_pairs import assert_disjoint
-    from go4cl.tasks.single_op import build_single_op_pair
-
-    ratios = ratios_from_train_frac(train_frac)
-    tag = (
-        f"single_p{modulus}_tr{train_frac:g}"
-        f"_ts{task_seed}_ds{data_seed}_a{n_aliases}_n{n_nuisance}"
-    )
-    data_dir = out / "data" / tag
-    manifest_path = data_dir / "manifest.json"
-    if manifest_path.exists():
-        manifest = DataManifest.load(manifest_path)
-        print(f"[data] reuse {data_dir}  A_train={manifest.samples_per_slot['A']['train']}")
-    else:
-        pair = build_single_op_pair(modulus, task_seed=task_seed)
-        manifest, datasets = generate_task_datasets(
-            pair,
-            data_seed=data_seed,
-            n_aliases_per_pair=n_aliases,
-            n_nuisance_contexts=n_nuisance,
-            ratios=ratios,
-            experiment_id=tag,
-        )
-        for split in manifest.residue_splits.values():
-            assert_disjoint(split)
-        save_datasets(data_dir, manifest, datasets)
-        print(
-            f"[data] wrote {data_dir}  A_train={manifest.samples_per_slot['A']['train']}  "
-            f"ratios={ratios}  hash={manifest.dataset_hash[:12]}"
-        )
-    return {
-        "tag": tag,
-        "data_dir": str(data_dir),
-        "modulus": modulus,
-        "train_frac": train_frac,
-        "ratios": list(ratios),
-        "n_aliases": n_aliases,
-        "n_nuisance": n_nuisance,
-        "n_train_a": int(manifest.samples_per_slot["A"]["train"]),
-        "n_val_a": int(manifest.samples_per_slot["A"]["val"]),
-        "n_test_a": int(manifest.samples_per_slot["A"]["test"]),
-        "dataset_hash": manifest.dataset_hash,
-        "pair_id": manifest.task_pair.pair_id,
-        "op": manifest.task_pair.task_a.operations[0].to_dict(),
-    }
+def _split_tag(meta: dict[str, Any]) -> str:
+    if meta["split_mode"] == "n_train_pairs":
+        return f"ntp{meta['n_train_pairs']}"
+    return f"tr{meta['train_frac']:g}"
 
 
 def run_calibrate(args: argparse.Namespace) -> None:
@@ -96,36 +47,69 @@ def run_calibrate(args: argparse.Namespace) -> None:
     if modulus not in PRIMES:
         print(f"[warn] modulus {modulus} not in PRIMES={PRIMES}; continuing anyway")
 
-    train_fracs = list(args.train_fracs)
+    train_fracs = list(args.train_fracs) if args.train_fracs is not None else None
+    if args.n_train_pairs_grid is not None:
+        n_train_pairs_list = [int(x) for x in args.n_train_pairs_grid]
+    elif args.n_train_pairs is not None:
+        n_train_pairs_list = [int(args.n_train_pairs)]
+    else:
+        n_train_pairs_list = None
+
+    if train_fracs is not None and n_train_pairs_list is not None:
+        raise SystemExit(
+            "pass only one split mode: --train-fracs  OR  "
+            "--n-train-pairs / --n-train-pairs-grid"
+        )
+    if train_fracs is None and n_train_pairs_list is None:
+        train_fracs = list(DEFAULT_TRAIN_FRACS)
+
     weight_decays = list(args.weight_decays)
     steps_grid = list(args.steps_grid)
     model_seeds = list(args.model_seeds)
     gpus = resolve_gpus(args.gpus)
     workers_per_gpu = max(int(args.workers_per_gpu), 1)
+    batch_size = int(getattr(args, "batch_size", DEFAULT_BATCH_SIZE))
 
     print(f"[phase1/calibrate] out={out_root}")
     print(f"[phase1/calibrate] modulus={modulus} (single op)")
-    print(f"[phase1/calibrate] train_fracs={train_fracs}")
+    if n_train_pairs_list is not None:
+        print(f"[phase1/calibrate] n_train_pairs={n_train_pairs_list}")
+    else:
+        print(f"[phase1/calibrate] train_fracs={train_fracs}")
     print(f"[phase1/calibrate] weight_decays={weight_decays}")
     print(f"[phase1/calibrate] steps_grid={steps_grid}")
     print(
-        f"[phase1/calibrate] aliases={args.n_aliases} nuisance={args.n_nuisance} "
-        f"lr={args.lr} full-batch"
+        f"[phase1/calibrate] aliases={args.n_aliases} "
+        f"lr={args.lr} batch_size={batch_size} "
+        f"(relevant-only residue split; nuisance positions ~ U{{0..63}})"
     )
 
     metas: list[dict[str, Any]] = []
-    for train_frac in train_fracs:
-        metas.append(
-            _prepare_single_op_dataset(
-                out_root,
-                modulus=modulus,
-                train_frac=train_frac,
-                n_aliases=args.n_aliases,
-                n_nuisance=args.n_nuisance,
-                task_seed=args.task_seed,
-                data_seed=args.data_seed,
+    if n_train_pairs_list is not None:
+        for ntp in n_train_pairs_list:
+            metas.append(
+                prepare_single_op_dataset(
+                    out_root,
+                    modulus=modulus,
+                    n_train_pairs=ntp,
+                    n_aliases=args.n_aliases,
+                    task_seed=args.task_seed,
+                    data_seed=args.data_seed,
+                )
             )
-        )
+    else:
+        assert train_fracs is not None
+        for train_frac in train_fracs:
+            metas.append(
+                prepare_single_op_dataset(
+                    out_root,
+                    modulus=modulus,
+                    train_frac=train_frac,
+                    n_aliases=args.n_aliases,
+                    task_seed=args.task_seed,
+                    data_seed=args.data_seed,
+                )
+            )
 
     wandb_group = args.wandb_group or f"p1_calibrate_p{modulus}_{stamp()}"
     jobs: list[TrainJob] = []
@@ -155,24 +139,28 @@ def run_calibrate(args: argparse.Namespace) -> None:
                                 "phase1",
                                 "calibrate",
                                 f"p{modulus}",
-                                f"tr{meta['train_frac']:g}",
+                                _split_tag(meta),
                                 f"wd{wd:g}",
                             ),
                             wandb_config={
                                 "phase": "phase1",
                                 "step": "calibrate",
                                 "modulus": modulus,
+                                "split_mode": meta["split_mode"],
                                 "train_frac": meta["train_frac"],
+                                "n_train_pairs": meta["n_train_pairs"],
+                                "n_train_pairs_realized": meta["n_train_pairs_realized"],
                                 "ratios": meta["ratios"],
                                 "n_aliases": meta["n_aliases"],
-                                "n_nuisance": meta["n_nuisance"],
                                 "n_train_a": meta["n_train_a"],
                                 "weight_decay": float(wd),
                                 "steps": int(steps),
                                 "task_seed": args.task_seed,
                                 "data_seed": args.data_seed,
                                 "single_op": True,
+                                "relevant_only_split": True,
                             },
+                            batch_size=batch_size,
                         )
                     )
 
@@ -185,7 +173,7 @@ def run_calibrate(args: argparse.Namespace) -> None:
     print(f"[phase1/calibrate] launching {len(jobs)} jobs  group={wandb_group}")
     for meta in metas:
         print(
-            f"  tr={meta['train_frac']:<4}  A_train={meta['n_train_a']:<6} "
+            f"  {_split_tag(meta):<10}  A_train={meta['n_train_a']:<6} "
             f"A_val={meta['n_val_a']:<5} A_test={meta['n_test_a']}"
         )
 
@@ -197,11 +185,12 @@ def run_calibrate(args: argparse.Namespace) -> None:
         config={
             "modulus": modulus,
             "train_fracs": train_fracs,
+            "n_train_pairs": n_train_pairs_list,
             "weight_decays": weight_decays,
             "steps_grid": steps_grid,
             "n_aliases": args.n_aliases,
-            "n_nuisance": args.n_nuisance,
             "lr": args.lr,
+            "batch_size": batch_size,
             "d_model": args.d_model,
             "n_layers": args.n_layers,
             "task_seed": args.task_seed,
@@ -211,12 +200,15 @@ def run_calibrate(args: argparse.Namespace) -> None:
             "workers_per_gpu": workers_per_gpu,
             "wandb_project": args.wandb_project,
             "wandb_group": wandb_group,
-            "full_batch": True,
+            "full_batch": False,
+            "relevant_only_split": True,
         },
         datasets=metas,
         results=results,
         csv_fields=[
+            "split_mode",
             "train_frac",
+            "n_train_pairs",
             "weight_decay",
             "steps",
             "n_train_a",
@@ -229,7 +221,9 @@ def run_calibrate(args: argparse.Namespace) -> None:
             "job_id",
         ],
         csv_row_fn=lambda r: [
+            (r.get("wandb_config") or {}).get("split_mode", ""),
             (r.get("wandb_config") or {}).get("train_frac", ""),
+            (r.get("wandb_config") or {}).get("n_train_pairs", ""),
             r.get("weight_decay", ""),
             r.get("steps", ""),
             (r.get("wandb_config") or {}).get("n_train_a", ""),
@@ -260,8 +254,22 @@ def add_calibrate_args(parser: argparse.ArgumentParser) -> None:
         "--train-fracs",
         type=float,
         nargs="+",
-        default=list(DEFAULT_TRAIN_FRACS),
-        help="Train residue-pair fractions to sweep",
+        default=None,
+        help="Train residue-pair fractions to sweep (default 0.4 0.6 0.8 if "
+        "neither split mode is set; mutually exclusive with --n-train-pairs*)",
+    )
+    parser.add_argument(
+        "--n-train-pairs",
+        type=int,
+        default=None,
+        help="Optional: fixed train residue-pair count",
+    )
+    parser.add_argument(
+        "--n-train-pairs-grid",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Optional: sweep multiple fixed train residue-pair counts",
     )
     parser.add_argument(
         "--weight-decays",
@@ -277,9 +285,19 @@ def add_calibrate_args(parser: argparse.ArgumentParser) -> None:
         default=[100_000],
         help="Training step budgets to sweep (default: single 100k)",
     )
-    parser.add_argument("--n-aliases", type=int, default=16)
-    parser.add_argument("--n-nuisance", type=int, default=4)
+    parser.add_argument(
+        "--n-aliases",
+        type=int,
+        default=16,
+        help="Raw aliases per residue pair on relevant operand positions",
+    )
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_BATCH_SIZE,
+        help=f"Mini-batch size (default {DEFAULT_BATCH_SIZE})",
+    )
     parser.add_argument("--d-model", type=int, default=64)
     parser.add_argument("--n-layers", type=int, default=3)
     parser.add_argument("--task-seed", type=int, default=0)

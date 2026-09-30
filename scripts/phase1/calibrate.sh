@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 1 / step calibrate — grokking regime on a medium modulus (default p=17).
+# Phase 1 / step calibrate — grokking regime on a medium modulus (default p=31).
 #
 # Usage:
 #   bash scripts/phase1/calibrate.sh

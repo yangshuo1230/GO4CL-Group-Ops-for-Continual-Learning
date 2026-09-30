@@ -14,7 +14,11 @@ from go4cl.constants import (
     SEQ_LEN_OPERANDS,
 )
 from go4cl.data.manifest import DataManifest, hash_payload, moduli_used_by_tasks
-from go4cl.data.residue_pairs import ResiduePairSplit, stratified_residue_pair_split
+from go4cl.data.residue_pairs import (
+    ResiduePairSplit,
+    stratified_residue_pair_split,
+    stratified_residue_pair_split_fixed_train,
+)
 from go4cl.tasks.relations import TaskPairSpec
 from go4cl.tasks.spec import Operation, TaskSpec
 
@@ -132,9 +136,17 @@ def build_shared_residue_splits(
     *,
     data_seed: int,
     ratios: tuple[float, float, float] = (0.6, 0.2, 0.2),
+    n_train_pairs: int | None = None,
 ) -> dict[int, ResiduePairSplit]:
     """One split per modulus; shared across all ops that use that modulus."""
     mods = moduli_used_by_tasks(*tasks)
+    if n_train_pairs is not None:
+        return {
+            p: stratified_residue_pair_split_fixed_train(
+                p, n_train_pairs=n_train_pairs, data_seed=data_seed + p
+            )
+            for p in mods
+        }
     return {
         p: stratified_residue_pair_split(p, ratios=ratios, data_seed=data_seed + p)
         for p in mods
@@ -148,13 +160,22 @@ def generate_task_datasets(
     n_aliases_per_pair: int = 16,
     n_nuisance_contexts: int = 4,
     ratios: tuple[float, float, float] = (0.6, 0.2, 0.2),
+    n_train_pairs: int | None = None,
     experiment_id: str = "default",
 ) -> tuple[DataManifest, dict[str, dict[str, list[Example]]]]:
     """
     Returns (manifest, datasets) where datasets[task_name][split] = examples.
+
+    If ``n_train_pairs`` is set, use a fixed train residue-pair count (Phase 1A);
+    otherwise split by ``ratios``.
     """
     tasks = [task_pair.task_a, task_pair.task_b]
-    splits = build_shared_residue_splits(tasks, data_seed=data_seed, ratios=ratios)
+    splits = build_shared_residue_splits(
+        tasks,
+        data_seed=data_seed,
+        ratios=ratios,
+        n_train_pairs=n_train_pairs,
+    )
     rng = np.random.default_rng(data_seed)
 
     datasets: dict[str, dict[str, list[Example]]] = {
@@ -190,6 +211,7 @@ def generate_task_datasets(
         },
         "n_aliases_per_pair": n_aliases_per_pair,
         "n_nuisance_contexts": n_nuisance_contexts,
+        "n_train_pairs": n_train_pairs,
         "data_seed": data_seed,
     }
     manifest = DataManifest(

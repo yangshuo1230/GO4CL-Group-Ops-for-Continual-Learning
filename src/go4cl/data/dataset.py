@@ -7,7 +7,7 @@ from typing import Literal
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
+from torch.utils.data import DataLoader, Dataset, RandomSampler, WeightedRandomSampler
 
 from go4cl.data.generate import Example, load_split_arrays
 
@@ -94,10 +94,35 @@ def make_loader(
     shuffle: bool = True,
     num_workers: int = 0,
     drop_last: bool = False,
+    replacement: bool = False,
 ) -> DataLoader:
+    """
+    Build a DataLoader.
+
+    If ``replacement`` is True and ``batch_size`` is set, each batch is exactly
+    ``batch_size`` examples drawn with replacement (even when ``batch_size`` >
+    dataset size). Eval should leave ``replacement=False``.
+    """
     n = len(dataset)  # type: ignore[arg-type]
-    bs = n if batch_size is None or batch_size <= 0 else min(int(batch_size), n)
-    bs = max(bs, 1)
+    if batch_size is None or batch_size <= 0:
+        bs = max(n, 1)
+        replacement = False
+    else:
+        bs = max(int(batch_size), 1)
+
+    if replacement:
+        # One fixed-size batch per epoch; ``infinite_loader`` re-epochs each step.
+        sampler = RandomSampler(dataset, replacement=True, num_samples=bs)
+        return DataLoader(
+            dataset,
+            batch_size=bs,
+            sampler=sampler,
+            num_workers=num_workers,
+            drop_last=False,
+            pin_memory=torch.cuda.is_available(),
+        )
+
+    bs = min(bs, max(n, 1))
     return DataLoader(
         dataset,
         batch_size=bs,

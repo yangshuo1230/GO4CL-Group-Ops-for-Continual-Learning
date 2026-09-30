@@ -21,6 +21,9 @@ class TrainConfig:
     weight_decay: float = 1.0
     # None / <=0 => full-batch (batch_size = dataset length)
     batch_size: int | None = None
+    # If True and batch_size is set: train loader draws fixed-size batches
+    # with replacement (Phase 1A uses this for batch_size=2048).
+    train_replacement: bool = False
     max_steps: int = 2000
     eval_every: int = 100
     ckpt_every: int = 500

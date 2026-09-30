@@ -43,17 +43,21 @@ def _task_loaders(
     data_root: Path,
     *,
     batch_size: int | None,
+    train_replacement: bool = False,
 ) -> dict[str, dict[str, DataLoader]]:
     out: dict[str, dict[str, DataLoader]] = {}
     for task_name, task_id in (("A", 0), ("B", 1)):
         out[task_name] = {}
         for split in ("train", "val", "test"):
             ds = ModularAdditionDataset.from_disk(data_root, task_name, split, task_id)  # type: ignore[arg-type]
-            # Train: honor full-batch default. Eval: also full-split by default for stable metrics.
+            is_train = split == "train"
+            # Train: optional fixed-size with-replacement batches.
+            # Eval: full split, no replacement (stable metrics).
             out[task_name][split] = make_loader(
                 ds,
-                batch_size=batch_size,
-                shuffle=(split == "train"),
+                batch_size=batch_size if is_train else None,
+                shuffle=is_train and not (train_replacement and batch_size),
+                replacement=bool(is_train and train_replacement and batch_size),
             )
     return out
 
@@ -90,13 +94,18 @@ def run_protocol(
     seed_everything(model_seed)
     device = torch.device(train_cfg.device)
     model = ModularTransformer(model_cfg).to(device)
-    loaders = _task_loaders(data_root, batch_size=train_cfg.batch_size)
+    loaders = _task_loaders(
+        data_root,
+        batch_size=train_cfg.batch_size,
+        train_replacement=bool(train_cfg.train_replacement),
+    )
     # Resolve effective train batch sizes for logging
     effective_bs = {
         "A_train": loaders["A"]["train"].batch_size,
         "B_train": loaders["B"]["train"].batch_size,
         "A_train_n": len(loaders["A"]["train"].dataset),  # type: ignore[arg-type]
         "B_train_n": len(loaders["B"]["train"].dataset),  # type: ignore[arg-type]
+        "train_replacement": bool(train_cfg.train_replacement),
     }
 
     run_name = wandb_name or f"{protocol}_ms{model_seed}"
@@ -112,6 +121,7 @@ def run_protocol(
             "weight_decay": train_cfg.weight_decay,
             "batch_size": train_cfg.batch_size,
             "full_batch": train_cfg.batch_size is None or train_cfg.batch_size <= 0,
+            "train_replacement": bool(train_cfg.train_replacement),
             "effective_batch": effective_bs,
             "eval_every": train_cfg.eval_every,
             "device": train_cfg.device,

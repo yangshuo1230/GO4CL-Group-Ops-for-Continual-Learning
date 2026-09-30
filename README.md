@@ -18,8 +18,10 @@ uv run wandb login
 ## Task gist
 
 - Input digits: **0–63** (64 tokens); plus `<TASK_A/B>` and `<Q_0..3>` → vocab **70**.
-- Sequence: 8 digits + task + query → predict \((x_i+x_j)\bmod p\) (31-way head).
-- Residue-pair train/val/test splits; expand with `n_aliases` × `n_nuisance`.
+- Sequence: 8 digits + task + query → predict \((x_i+x_j)\bmod p\) (47-way head).
+- Phase 1A: residue-pair split **only on relevant operand positions** (default `train_frac`, or optional `n_train_pairs`) × `n_aliases`; other digits ~\(U\{0..63\}\); train with **batch 2048 + replacement**.
+- Dual-task / general path still uses residue-pair splits with `n_aliases` × `n_nuisance`.
+- Moduli: \(\mathcal P=\{19,23,29,31,37,41,43,47\}\).
 
 ## Layout
 
@@ -44,12 +46,14 @@ docs/RESEARCH_EXPERIMENT_PLAN.md
 ## Phase CLI
 
 ```bash
-# Phase 1A prelude — calibrate on p=17
+# Phase 1A prelude — calibrate on p=31
 bash scripts/phase1/calibrate.sh --gpus 4,5 --workers-per-gpu 2
 
-# Phase 1A — modulus scan (after locking train_frac / weight_decay)
+# Phase 1A — modulus scan (after locking train config)
 bash scripts/phase1/scan_moduli.sh \
-  --train-frac 0.6 --weight-decay 0.3 --steps 100000 --gpus 4,5
+  --train-frac 0.8 --weight-decay 0.3 --steps 100000 \
+  --gpus 0,1 --workers-per-gpu 4
+# optional: --n-train-pairs 150 ...
 
 # Stubs: phase1 multi-op | mechanisms ; phase2 * ; phase3 *
 uv run go4cl phase1 --help

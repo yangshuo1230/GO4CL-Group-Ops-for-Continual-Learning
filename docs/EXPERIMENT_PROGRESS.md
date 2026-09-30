@@ -32,8 +32,8 @@
 
 | ID | 步骤 | CLI | 产物目录 | 状态 | 锁定配置 / 结论摘要 | 日期 |
 |----|------|-----|----------|------|---------------------|------|
-| 1A-0 | Grokking regime 校准（中等模数） | `go4cl phase1 calibrate` | `runs/phase1/calibrate/` | 进行中 | 输入已改为 0–63；需用新词表重跑后锁定 `train_frac` / `wd` / `steps` | 2026-09-30 |
-| 1A | 单操作 × 八模数扫描 | `go4cl phase1 scan-moduli` | `runs/phase1/scan_moduli/` | 未开始 | 依赖 1A-0 锁定配置 | |
+| 1A-0 | Grokking regime 校准（中等模数） | `go4cl phase1 calibrate` | `runs/phase1/calibrate/` | 进行中 | 默认 `--train-fracs 0.4 0.6 0.8`（仍可用 `--n-train-pairs*`）；`wd`/`steps` 扫描；`bs=2048` 有放回 | 2026-09-30 |
+| 1A | 单操作 × 八模数扫描 | `go4cl phase1 scan-moduli` | `runs/phase1/scan_moduli/` | 进行中 | 默认 `--train-frac 0.8`；可选 `--n-train-pairs` | 2026-09-30 |
 | 1A-mech | **单模数机理分析**（Fourier / 探针 / patching） | `go4cl phase1 mech-single` | `runs/phase1/mech_single/` | 未开始 | 依赖 1A checkpoint；先确认单操作电路 | |
 | 1B | 多操作单任务 / 同模数促进 | `go4cl phase1 multi-op` | `runs/phase1/multi_op/` | 未开始 | CLI 占位；建议在 1A-mech 之后 | |
 | 1C | 多操作对照机理（共享计算 / 移植） | `go4cl phase1 mechanisms` | `runs/phase1/mechanisms/` | 未开始 | CLI 占位；依赖 1B（+ 1A-mech 基线） | |
@@ -86,3 +86,6 @@
 |------|------|
 | 2026-09-30 | 建立本表；工程预检完成；1A-0 进行中；输入词表改为 0–63 |
 | 2026-09-30 | 1A 后增加 **1A-mech**（`mech-single`）；原 1C 改为多操作对照机理 |
+| 2026-09-30 | **1A 数据/训练协议修订（仅阶段一单操作）**：只对有关操作数位置按 `train_frac` 严格划分 train/val/test，并用 `n_aliases` 展开；无关 6 位从 0–63 均匀采样（取消 `n_nuisance`）；训练固定 `batch_size=2048` **有放回采样**；eval 仍全量无放回。试跑锁定 `train_frac=0.8` / `wd=0.3` / `steps=100k`，启动 `scan-moduli` |
+| 2026-09-30 | **模数集合更新**：\(\mathcal P=\{19,23,29,31,37,41,43,47\}\)；输出头改为 47 类；校准默认模数改为 \(p=31\) |
+| 2026-09-30 | **1A 划分双路径**：默认比例 `--train-frac` / `--train-fracs`；可选固定对数 `--n-train-pairs` |

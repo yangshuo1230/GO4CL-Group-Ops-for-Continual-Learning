@@ -69,6 +69,7 @@ class TrainJob:
     wandb_mode: str | None
     wandb_tags: tuple[str, ...]
     wandb_config: dict[str, Any]
+    batch_size: int = 2048
 
 
 def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
@@ -103,7 +104,8 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
         train_cfg = TrainConfig(
             lr=job.lr,
             weight_decay=job.weight_decay,
-            batch_size=None,
+            batch_size=int(job.batch_size),
+            train_replacement=True,
             max_steps=job.steps,
             eval_every=eval_every,
             ckpt_every=max(job.steps // 5, eval_every),
@@ -125,7 +127,9 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
             wandb_tags=list(job.wandb_tags),
             wandb_config={
                 **job.wandb_config,
-                "full_batch": True,
+                "batch_size": int(job.batch_size),
+                "train_replacement": True,
+                "full_batch": False,
                 "wandb_group": job.wandb_group,
                 "gpu": job.gpu,
             },

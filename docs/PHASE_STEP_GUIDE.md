@@ -31,13 +31,14 @@
 
 **内容：**
 
-- 固定**单个操作**、中等模数（默认 \(p=17\)）
+- 固定**单个操作**、中等模数（默认 \(p=31\)）
 - 网格扫描至少包括：
-  - 训练余数对比例 `train_frac`
+  - 训练余数对比例 `train_frac`（默认扫 `0.4 0.6 0.8`；也可用可选 `n_train_pairs`）
   - `weight_decay`
   - （可选）训练步数 `steps`
-- 展开参数默认 `n_aliases=16`、`n_nuisance=4`；输入数字 **0–63**
-- full-batch、曲线打到 W&B
+- 有关位置：`train_frac`（或 `n_train_pairs`）+ `n_aliases=16`；无关 6 个数字位直接从词表 **0–63** 均匀采样一次（不做 `n_nuisance` 展开）
+- 训练：`batch_size=2048`，**有放回采样**固定每步 2048（即使某模数训练集 < 2048）；eval 仍全量无放回
+- 曲线打到 W&B
 
 **要回答的问题：** 在什么数据比例与正则下，模型能记忆训练集并（若出现）泛化到 held-out 余数对？
 
@@ -63,8 +64,10 @@ uv run go4cl phase1 calibrate --help
 
 **内容：**
 
-- 对 \(p\in\{7,11,13,17,19,23,29,31\}\) 各训一个**单有效 query** 模型
-- 模型、优化器、每操作暴露量、residue-pair 训练比例全相同
+- 对 \(p\in\{19,23,29,31,37,41,43,47\}\) 各训一个**单有效 query** 模型
+- 模型、优化器、有关位置暴露量（默认 `train_frac` × `n_aliases`；可选 `n_train_pairs`）全相同
+- 数据构造（仅 1A）：只对有关操作数位置的无序余数对严格划分；无关位 ~\(U\{0,\ldots,63\}\)
+- 训练：`batch_size=2048` + 有放回采样（跨模数每步算力对齐）；eval 全量无放回
 - 记录完整 train/val/test 曲线，不只最终准确率
 - 汇总 \(t_{\mathrm{mem}}\)、\(t_{\mathrm{gen}}\)、grokking delay、跃迁锐度等
 
@@ -76,7 +79,10 @@ uv run go4cl phase1 calibrate --help
 
 ```bash
 bash scripts/phase1/scan_moduli.sh \
-  --train-frac <锁定> --weight-decay <锁定> --steps <锁定> --gpus …
+  --train-frac 0.8 --weight-decay 0.3 --steps 100000 \
+  --gpus 0,1 --workers-per-gpu 4
+# optional fixed-count split:
+#   ... --n-train-pairs 150 --weight-decay 0.3 --steps 100000 ...
 ```
 
 ---
@@ -89,7 +95,7 @@ bash scripts/phase1/scan_moduli.sh \
 
 **内容（聚焦单操作 / 单模数）：**
 
-- 对代表性模数（建议先 \(p=17\)，再扩到 1A 中学得最好/最差的模数）做：
+- 对代表性模数（建议先 \(p=31\)，再扩到 1A 中学得最好/最差的模数）做：
   - 模 \(p\) Fourier：token embedding、query residual、unembedding
   - 探针：能否解码 \(x_i\bmod p\)、两操作数、部分和、最终结果
   - Attention：query 是否稳定选中正确的两个输入位置
@@ -106,7 +112,7 @@ bash scripts/phase1/scan_moduli.sh \
 ```bash
 uv run go4cl phase1 mech-single \
   --ckpt-root runs/phase1/scan_moduli/<stamp> \
-  --moduli 17
+  --moduli 31
 ```
 
 ---

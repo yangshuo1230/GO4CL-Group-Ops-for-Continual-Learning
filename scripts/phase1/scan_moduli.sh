@@ -2,9 +2,14 @@
 # Phase 1 / step scan-moduli — single-op scan with a locked training config.
 #
 # Usage (after calibration):
+#   # ratio split (default)
 #   bash scripts/phase1/scan_moduli.sh \
-#     --train-frac 0.6 --weight-decay 0.3 --steps 100000 \
-#     --gpus 4,5
+#     --train-frac 0.8 --weight-decay 0.3 --steps 100000 \
+#     --gpus 0,1 --workers-per-gpu 4
+#   # optional fixed train residue-pair count
+#   bash scripts/phase1/scan_moduli.sh \
+#     --n-train-pairs 150 --weight-decay 0.3 --steps 100000 \
+#     --gpus 0,1
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."

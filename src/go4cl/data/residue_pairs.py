@@ -158,6 +158,96 @@ def stratified_residue_pair_split(
     )
 
 
+def stratified_residue_pair_split_fixed_train(
+    modulus: int,
+    *,
+    n_train_pairs: int = 150,
+    data_seed: int = 0,
+) -> ResiduePairSplit:
+    """
+    Stratified split with a **fixed** train residue-pair count.
+
+    For each output class y=(r1+r2) mod p (when the class is large enough),
+    reserve one pair for val and one for test, then fill the train set up to
+    ``n_train_pairs`` by round-robin across classes. Leftover pairs are split
+    evenly between val and test.
+
+    If the modulus has too few pairs to reach ``n_train_pairs`` after reserves,
+    train gets all remaining pairs (a warning is printed by the caller).
+    """
+    if n_train_pairs < 1:
+        raise ValueError(f"n_train_pairs must be >= 1, got {n_train_pairs}")
+
+    rng = np.random.default_rng(data_seed)
+    by_label: dict[int, list[tuple[int, int]]] = {y: [] for y in range(modulus)}
+    for pair in all_unordered_pairs(modulus):
+        by_label[pair_label(pair, modulus)].append(pair)
+
+    train: list[tuple[int, int]] = []
+    val: list[tuple[int, int]] = []
+    test: list[tuple[int, int]] = []
+    pool_by_label: dict[int, list[tuple[int, int]]] = {y: [] for y in range(modulus)}
+
+    for y in range(modulus):
+        pairs = list(by_label[y])
+        rng.shuffle(pairs)
+        n = len(pairs)
+        if n == 0:
+            continue
+        if n == 1:
+            pool_by_label[y].append(pairs[0])
+            continue
+        if n == 2:
+            pool_by_label[y].append(pairs[0])
+            if rng.random() < 0.5:
+                val.append(pairs[1])
+            else:
+                test.append(pairs[1])
+            continue
+        # n >= 3: lock one val + one test, rest to pool
+        test.append(pairs[0])
+        val.append(pairs[1])
+        pool_by_label[y].extend(pairs[2:])
+
+    # Round-robin fill train from per-class pools for balance
+    labels = list(range(modulus))
+    rng.shuffle(labels)
+    while len(train) < n_train_pairs:
+        progressed = False
+        for y in labels:
+            if pool_by_label[y] and len(train) < n_train_pairs:
+                train.append(pool_by_label[y].pop())
+                progressed = True
+        if not progressed:
+            break
+
+    # Remaining pool → val/test alternately (per class, then leftovers)
+    leftovers: list[tuple[int, int]] = []
+    for y in labels:
+        leftovers.extend(pool_by_label[y])
+    rng.shuffle(leftovers)
+    for i, pair in enumerate(leftovers):
+        if i % 2 == 0:
+            val.append(pair)
+        else:
+            test.append(pair)
+
+    total = len(all_unordered_pairs(modulus))
+    ratios = (
+        len(train) / total,
+        len(val) / total,
+        len(test) / total,
+    )
+    return ResiduePairSplit(
+        modulus=modulus,
+        train=tuple(train),
+        val=tuple(val),
+        test=tuple(test),
+        ratios=ratios,
+        data_seed=data_seed,
+    )
+
+
 def assert_disjoint(split: ResiduePairSplit) -> None:
     sets = [set(split.train), set(split.val), set(split.test)]
     for i in range(3):
