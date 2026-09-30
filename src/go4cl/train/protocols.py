@@ -16,8 +16,8 @@ from go4cl.data.dataset import (
 )
 from go4cl.metrics.behavioral import evaluate, forgetting
 from go4cl.model.transformer import ModelConfig, ModularTransformer
-from go4cl.train.loop import TrainConfig, train_steps
-from go4cl.utils.checkpoint import save_checkpoint, write_json
+from go4cl.train.loop import TrainConfig, TrainState, train_steps
+from go4cl.utils.checkpoint import load_checkpoint, save_checkpoint, write_json
 from go4cl.utils.seed import seed_everything
 from go4cl.utils.wandb_log import define_train_metrics, finish_wandb, init_wandb, log_wandb
 
@@ -155,6 +155,45 @@ def run_protocol(
         res["tag"] = tag
         return res
 
+    def _attach_best_by_val(state: TrainState, *, final_tag: str) -> None:
+        """Evaluate best-by-val ckpt; keep top-level metrics as final weights.
+
+        Adds best_* keys selected by mean val accuracy during training.
+        Restores final weights afterward so trailing final.pt stays final.
+        """
+        metrics["final_step"] = state.step
+        metrics["best_step"] = state.best_step
+        metrics["best_val_score"] = (
+            float(state.best_val_acc) if state.best_val_acc >= 0 else None
+        )
+        best_path = state.best_ckpt_path
+        if not best_path or not Path(best_path).is_file():
+            return
+        # Snapshot final weights path written by train_steps.
+        final_path = Path(out_dir) / "ckpts" / f"{final_tag}_final.pt"
+        load_checkpoint(best_path, model=model, map_location=device)
+        best = _eval_both("best_by_val")
+        metrics["best_A_val_acc"] = best["A_val_acc"]
+        metrics["best_A_test_acc"] = best["A_test_acc"]
+        metrics["best_A_val_loss"] = best["A_val_loss"]
+        metrics["best_A_test_loss"] = best["A_test_loss"]
+        metrics["best_B_val_acc"] = best["B_val_acc"]
+        metrics["best_B_test_acc"] = best["B_test_acc"]
+        metrics["best_ckpt"] = str(best_path)
+        log_wandb(
+            {
+                "best/A_val_acc": best["A_val_acc"],
+                "best/A_test_acc": best["A_test_acc"],
+                "best/B_val_acc": best["B_val_acc"],
+                "best/B_test_acc": best["B_test_acc"],
+                "best/step": state.best_step,
+                "best/val_score": state.best_val_acc,
+            },
+            step=state.step,
+        )
+        if final_path.is_file():
+            load_checkpoint(final_path, model=model, map_location=device)
+
     try:
         if protocol == "a_only":
             cfg = TrainConfig(**{**train_cfg.__dict__, "max_steps": steps})
@@ -168,6 +207,7 @@ def run_protocol(
             )
             final_step = state.step
             metrics.update(_eval_both("after_a"))
+            _attach_best_by_val(state, final_tag="a_only")
 
         elif protocol == "b_only":
             cfg = TrainConfig(**{**train_cfg.__dict__, "max_steps": steps})
@@ -181,6 +221,7 @@ def run_protocol(
             )
             final_step = state.step
             metrics.update(_eval_both("after_b"))
+            _attach_best_by_val(state, final_tag="b_only")
 
         elif protocol == "joint":
             ds_a = ModularAdditionDataset.from_disk(data_root, "A", "train", 0)
@@ -202,6 +243,7 @@ def run_protocol(
             )
             final_step = state.step
             metrics.update(_eval_both("after_joint"))
+            _attach_best_by_val(state, final_tag="joint")
 
         elif protocol in {"sequential_ab", "a_only_continued"}:
             cfg_a = TrainConfig(**{**train_cfg.__dict__, "max_steps": steps})
@@ -230,6 +272,7 @@ def run_protocol(
                 )
                 final_step = state_a.step + state_c.step
                 metrics["after_continued"] = _eval_both("after_continued")
+                _attach_best_by_val(state_c, final_tag="phase_a_continued")
             else:
                 cfg_b = TrainConfig(**{**train_cfg.__dict__, "max_steps": steps})
                 state_b = train_steps(
@@ -248,6 +291,7 @@ def run_protocol(
                 metrics["forgetting_A"] = forgetting(
                     max_acc_a, metrics["after_b"]["A_test_acc"]
                 )
+                _attach_best_by_val(state_b, final_tag="phase_b")
 
         elif protocol == "sequential_ba":
             cfg_b = TrainConfig(**{**train_cfg.__dict__, "max_steps": steps})
@@ -273,6 +317,7 @@ def run_protocol(
             )
             final_step = state_b.step + state_a.step
             metrics.update(_eval_both("after_ba"))
+            _attach_best_by_val(state_a, final_tag="phase_a")
 
         elif protocol == "interleaved":
             from go4cl.train.loop import build_optimizer, infinite_loader

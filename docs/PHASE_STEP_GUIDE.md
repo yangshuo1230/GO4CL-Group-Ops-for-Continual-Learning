@@ -38,6 +38,7 @@
   - （可选）训练步数 `steps`
 - 有关位置：`train_frac`（或 `n_train_pairs`）+ `n_aliases=16`；无关 6 个数字位直接从词表 **0–63** 均匀采样一次（不做 `n_nuisance` 展开）
 - 训练：`batch_size=2048`，**有放回采样**固定每步 2048（即使某模数训练集 < 2048）；eval 仍全量无放回
+- 按 **val 准确率**保存 best checkpoint（`*_best.pt` / `best.pt`）；汇总同时写 final 与 best 指标
 - 曲线打到 W&B
 
 **要回答的问题：** 在什么数据比例与正则下，模型能记忆训练集并（若出现）泛化到 held-out 余数对？
@@ -68,6 +69,7 @@ uv run go4cl phase1 calibrate --help
 - 模型、优化器、有关位置暴露量（默认 `train_frac` × `n_aliases`；可选 `n_train_pairs`）全相同
 - 数据构造（仅 1A）：只对有关操作数位置的无序余数对严格划分；无关位 ~\(U\{0,\ldots,63\}\)
 - 训练：`batch_size=2048` + 有放回采样（跨模数每步算力对齐）；eval 全量无放回
+- 按 val 选 best checkpoint；报告/CSV 同时含 final 与 `best_A_val_acc` / `best_A_test_acc` / `best_step`
 - 记录完整 train/val/test 曲线，不只最终准确率
 - 汇总 \(t_{\mathrm{mem}}\)、\(t_{\mathrm{gen}}\)、grokking delay、跃迁锐度等
 
@@ -89,7 +91,7 @@ bash scripts/phase1/scan_moduli.sh \
 
 ### 1A-mech · `phase1 mech-single` — 单模数机理分析
 
-**依赖：** 1A（`scan-moduli`）完成，并有可用 checkpoint（记忆点 / 泛化跃迁 / 最终）。
+**依赖：** 1A（`scan-moduli`）完成，并有可用 checkpoint（记忆点 / 泛化跃迁 / best-by-val / 最终）。
 
 **何时做：** **紧接 1A 之后、1B 之前。** 先在「只有一个模加法操作」的最简设定下找电路，再进入多操作促进。
 

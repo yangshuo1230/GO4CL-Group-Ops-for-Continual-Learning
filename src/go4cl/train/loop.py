@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Iterator
 
 import torch
@@ -34,7 +36,11 @@ class TrainConfig:
 @dataclass
 class TrainState:
     step: int = 0
-    best_val_acc: float = 0.0
+    # Selection score over eval loaders whose names end with "val" (mean if several).
+    # Starts at -1 so the first val eval always writes a best checkpoint.
+    best_val_acc: float = -1.0
+    best_step: int = 0
+    best_ckpt_path: str | None = None
 
 
 def build_optimizer(model: ModularTransformer, cfg: TrainConfig) -> torch.optim.Optimizer:
@@ -101,12 +107,40 @@ def train_steps(
 
         if do_eval:
             assert record is not None
+            val_accs: dict[str, float] = {}
             for name, loader in eval_loaders.items():  # type: ignore[union-attr]
                 result: EvalResult = evaluate(model, loader, device)
                 record[f"{name}_loss"] = result.loss
                 record[f"{name}_acc"] = result.accuracy
                 if name.endswith("val") or name == "val":
-                    state.best_val_acc = max(state.best_val_acc, result.accuracy)
+                    val_accs[name] = result.accuracy
+            if val_accs:
+                score = sum(val_accs.values()) / len(val_accs)
+                record["val_score"] = score
+                if score > state.best_val_acc:
+                    state.best_val_acc = score
+                    state.best_step = step
+                    if ckpt_dir:
+                        best_path = f"{ckpt_dir}/{run_name}_best.pt"
+                        save_checkpoint(
+                            best_path,
+                            model,
+                            optimizer=opt,
+                            step=step,
+                            meta={
+                                "run_name": run_name,
+                                "best": True,
+                                "best_val_acc": score,
+                                "val_accs": val_accs,
+                            },
+                        )
+                        state.best_ckpt_path = best_path
+                    record["is_best"] = 1.0
+                    record["best_val_acc"] = score
+                    record["best_step"] = step
+                else:
+                    record["best_val_acc"] = state.best_val_acc
+                    record["best_step"] = state.best_step
 
         if record is not None:
             log_wandb(record, step=step)
@@ -131,4 +165,9 @@ def train_steps(
             step=state.step,
             meta={"run_name": run_name, "final": True},
         )
+        # Stable alias pointing at the latest best-by-val weights.
+        if state.best_ckpt_path is not None:
+            src = Path(state.best_ckpt_path)
+            if src.is_file():
+                shutil.copy2(src, Path(ckpt_dir) / "best.pt")
     return state

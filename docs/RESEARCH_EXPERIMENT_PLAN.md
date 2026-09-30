@@ -193,6 +193,7 @@ $$
 - 有关位置用 `n_aliases` 展开 raw aliases（含交换顺序）；
 - 其余六个无关数字位在生成时从 \(\{0,\ldots,63\}\) 均匀采样一次，**不**做 nuisance-context 展开，也不参与 split；
 - 固定数据集仍按 manifest 落盘；训练时以 `batch_size=2048` **有放回**采样，使小模数（训练集 < 2048）与大模数每步算力对齐；validation/test 评估仍全量、无放回。
+- 训练过程中按 validation 准确率保存 best checkpoint（`*_best.pt`，并落盘别名 `best.pt`）；协议结束时同时报告 **final** 与 **best-by-val** 的 held-out 指标（不得按 test 选点）。
 
 在扫描全部模数前，先用一个中等模数做小型 grokking regime calibration，考察训练余数对比例、weight decay 和训练步数。锁定统一训练配置后再扫描八个模数，不能为每个模数单独挑选最容易出现 grokking 的超参数。若某些模数只表现为平滑泛化，也应作为结果报告，而不是把 grokking 当作必须出现的成功条件。
 
