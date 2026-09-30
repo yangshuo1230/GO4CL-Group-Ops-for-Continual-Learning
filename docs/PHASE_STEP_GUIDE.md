@@ -93,7 +93,7 @@ bash scripts/phase1/scan_moduli.sh \
 
 **依赖：** 1A（`scan-moduli`）完成，并有可用 checkpoint（记忆点 / 泛化跃迁 / best-by-val / 最终）。
 
-**何时做：** **紧接 1A 之后、1B 之前。** 先在「只有一个模加法操作」的最简设定下找电路，再进入多操作促进。
+**何时做：** 原计划紧接 1A 之后；**当前进度：暂时跳过**，先跑 1B 行为实验，机理分析后补。
 
 **内容（聚焦单操作 / 单模数）：**
 
@@ -107,7 +107,7 @@ bash scripts/phase1/scan_moduli.sh \
 **要回答的问题：** 单模数下模型是否形成可干预的「模加法算法」？不同模数是否共用同类机制？
 
 **产出：** `runs/phase1/mech_single/`；单模数机理报告（与 1A 行为曲线对照）。  
-**状态：** CLI 占位，实现待补。
+**状态：** CLI 占位；进度表标记为 **跳过（可后补）**。
 
 **入口：**
 
@@ -121,21 +121,35 @@ uv run go4cl phase1 mech-single \
 
 ### 1B · `phase1 multi-op` — 多操作单任务与同模数促进
 
-**依赖：** 1A 配置可用；**建议 1A-mech 已给出单操作机理基线**后再做，便于对比「促进」是否来自共享计算电路。
+**依赖：** 1A 锁定配置可用（当前：`train_frac=0.8`、`wd=0.3`、`steps=100k`、`aliases=16`、`bs=2048` 有放回）。1A-mech 可后补。
 
-**内容（对照设计）：**
+**内容（对照设计，同一 `task_seed` 共享 operand matching + slots）：**
 
-1. 一个操作（与 1A 衔接）
-2. 四个操作、四个不同模数
-3. 四个操作中有一对同模数（位置与槽不同）
-4. （可选）四个操作全同模数
+| 变体 | CLI 名 | 模数分配 |
+|------|--------|----------|
+| 单操作 | `one` | \((p)\) |
+| 四操作异模数 | `four_diff` | \((p,q,p_2,p_3)\)，其中 \((p,q)\) 为近邻模数对 |
+| 一对同模数 | `pair_same` | \((p,p,p_2,p_3)\) |
+| （可选）全同模数 | `all_same` | \((p,p,p,p)\) |
 
-约束：每操作 query 概率与样本暴露匹配；同模数操作共用 residue-pair split。
+同模数操作共用同一套 residue-pair train/val/test split。默认跑 `one four_diff pair_same` × 多个 `task_seed`。
 
-**要回答的问题：** 第二个同模数操作是否缩短 \(t_{\mathrm{gen}}\)？计算是否共享、路由是否分离？
+**要回答的问题：** 第二个同模数操作是否缩短 \(t_{\mathrm{gen}}\) / 提高 held-out？相对近邻异模数对照，促进是否存在？
 
-**产出：** `runs/phase1/multi_op/`；促进效应的行为证据。  
-**状态：** CLI 占位，实现待补。
+**产出：** `runs/phase1/multi_op/<stamp>/`。  
+**状态：** 已实现训练入口。
+
+**入口：**
+
+```bash
+bash scripts/phase1/multi_op.sh --gpus 0,1,2,3,4,5 --workers-per-gpu 1
+# 或
+uv run go4cl phase1 multi-op \
+  --variants one four_diff pair_same \
+  --task-seeds 0 1 \
+  --train-frac 0.8 --weight-decay 0.3 --steps 100000 \
+  --gpus 0,1,2,3,4,5
+```
 
 ---
 

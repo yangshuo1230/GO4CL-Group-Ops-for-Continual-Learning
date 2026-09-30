@@ -37,6 +37,95 @@ PHASE1A_GENERATION_RULE_FIXED = (
 DEFAULT_BATCH_SIZE = 2048
 DEFAULT_N_TRAIN_PAIRS = 150
 
+PHASE1B_GENERATION_RULE_FRAC = (
+    "Phase 1B: for each op, partition unordered residue pairs of its operand "
+    "positions by train_frac (val/test share the remainder); ops that share a "
+    "modulus reuse the same residue-pair split; for each pair emit n_aliases "
+    "raw aliases with x in 0..63; fill irrelevant digit positions uniformly "
+    "from 0..63 once per alias (n_nuisance_contexts=1)."
+)
+
+
+def prepare_multi_op_dataset(
+    out: Path,
+    *,
+    variant: str,
+    n_aliases: int,
+    task_seed: int,
+    data_seed: int,
+    train_frac: float = 0.8,
+) -> dict[str, Any]:
+    """Build or reuse a Phase 1B multi-op fixed dataset under ``out/data/``."""
+    from go4cl.data.generate import generate_task_datasets, save_datasets
+    from go4cl.data.manifest import DataManifest
+    from go4cl.data.residue_pairs import assert_disjoint
+    from go4cl.phases.common import ratios_from_train_frac
+    from go4cl.tasks.multi_op import (
+        build_multi_op_pair,
+        choose_base_moduli,
+        moduli_for_variant,
+    )
+
+    ratios = ratios_from_train_frac(train_frac)
+    base = choose_base_moduli(task_seed)
+    mods = moduli_for_variant(variant, base)  # type: ignore[arg-type]
+    mod_tag = "-".join(str(m) for m in mods)
+    tag = (
+        f"multi_{variant}_m{mod_tag}"
+        f"_tr{train_frac:g}_ts{task_seed}_ds{data_seed}_a{n_aliases}_p1b"
+    )
+    data_dir = out / "data" / tag
+    manifest_path = data_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest = DataManifest.load(manifest_path)
+        print(
+            f"[data] reuse {data_dir}  "
+            f"A_train={manifest.samples_per_slot['A']['train']}"
+        )
+    else:
+        pair = build_multi_op_pair(
+            variant, task_seed=task_seed, base_moduli=base  # type: ignore[arg-type]
+        )
+        manifest, datasets = generate_task_datasets(
+            pair,
+            data_seed=data_seed,
+            n_aliases_per_pair=n_aliases,
+            n_nuisance_contexts=1,
+            ratios=ratios,
+            experiment_id=tag,
+        )
+        manifest.generation_rule = PHASE1B_GENERATION_RULE_FRAC
+        for split in manifest.residue_splits.values():
+            assert_disjoint(split)
+        save_datasets(data_dir, manifest, datasets)
+        print(
+            f"[data] wrote {data_dir}  "
+            f"A_train={manifest.samples_per_slot['A']['train']}  "
+            f"n_ops={pair.task_a.n_ops} mods={list(mods)}  "
+            f"hash={manifest.dataset_hash[:12]}"
+        )
+
+    return {
+        "tag": tag,
+        "data_dir": str(data_dir),
+        "variant": variant,
+        "moduli": list(mods),
+        "base_moduli": list(base),
+        "n_ops": len(manifest.task_pair.task_a.operations),
+        "split_mode": "train_frac",
+        "train_frac": train_frac,
+        "ratios": list(ratios),
+        "n_aliases": n_aliases,
+        "n_train_a": int(manifest.samples_per_slot["A"]["train"]),
+        "n_val_a": int(manifest.samples_per_slot["A"]["val"]),
+        "n_test_a": int(manifest.samples_per_slot["A"]["test"]),
+        "dataset_hash": manifest.dataset_hash,
+        "pair_id": manifest.task_pair.pair_id,
+        "ops": [op.to_dict() for op in manifest.task_pair.task_a.operations],
+        "generation_rule": PHASE1B_GENERATION_RULE_FRAC,
+        "batch_size": DEFAULT_BATCH_SIZE,
+    }
+
 
 def prepare_single_op_dataset(
     out: Path,
