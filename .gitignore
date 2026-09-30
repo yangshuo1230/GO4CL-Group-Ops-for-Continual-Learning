@@ -9,9 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
-# Experiment artifacts
+# Experiment artifacts (root only — do not ignore src/go4cl/data/)
 runs/
-data/
+/data/
 *.pt
 .pytest_cache/
 .ruff_cache/
