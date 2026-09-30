@@ -1,0 +1,44 @@
+[project]
+name = "go4cl"
+version = "0.1.0"
+description = "Transformer continual learning on modular-addition tasks (circuit reuse / forgetting)."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "einops>=0.8.2",
+    "numpy>=2.4.6",
+    "pyyaml>=6.0.3",
+    "torch==2.6.0+cu124",
+    "tqdm>=4.70.1",
+]
+
+[project.scripts]
+go4cl = "go4cl:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

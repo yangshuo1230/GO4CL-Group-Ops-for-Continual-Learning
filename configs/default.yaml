@@ -1,0 +1,21 @@
+model:
+  n_layers: 3
+  d_model: 64
+  n_heads: 4
+  d_mlp: 256
+  dropout: 0.0
+  activation: relu
+
+train:
+  lr: 0.001
+  weight_decay: 1.0
+  batch_size: 128
+  max_steps: 10000
+  eval_every: 200
+  ckpt_every: 1000
+  grad_clip: 1.0
+
+data:
+  n_aliases_per_pair: 2
+  n_nuisance_contexts: 1
+  split_ratios: [0.6, 0.2, 0.2]
