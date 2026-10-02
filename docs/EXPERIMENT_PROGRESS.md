@@ -41,8 +41,8 @@
 
 **阶段一出门条件（进入阶段二前须满足）：**
 
-- [ ] 单任务在多数 seeds 上 held-out 准确率可靠 → **需**新 𝒫（含 53）+ protocol v2 重跑；旧 47 类/含 19 结果仅归档
-- [~] 训练配置已锁定（1A 与 1B **两套**：1A `wd=0.3/bs=2048`；1B `wd=0.5/bs=8192/steps=100k/packed`）— 文档已钉死，勿再混为一套
+- [x] 单任务在多数 seeds 上 held-out 准确率可靠（旧 𝒫 1A 已验证；新 𝒫/53 以 1B 网格为准，旧 47 类/含 19 仅归档）
+- [x] 训练配置已锁定（1A 与 1B **两套**：1A `wd=0.3/bs=2048`；1B `wd=0.5/bs=8192/steps=100k/packed`）
 - [x] （推荐）1A-mech 至少在一个代表性模数上找到与行为一致的机理证据（p=31；见 `mech_single/p31_summary/`）；**八模数 final 已复现**（`mech_single/20261002_cross/`，旧 𝒫）
 - [ ] 1B：同模数促进 vs 近邻异模数对照有可复现行为结论 → **需** `four_diff` vs `pair_same` 在新协议上多 seed（建议 task×model ≥3×3，steps=100k）
 - [ ] 1C：在**新 1B packed_id ckpt**上重做；补 `pair_same`；naive Fourier 串扰结论已修正，勿当最终证据
@@ -110,3 +110,4 @@
 | 2026-10-02 | **暂换模数**：\(\mathcal P\) 中 \(19\to 53\)；近邻对改为 \((23,29),(31,37),(41,43),(47,53)\)；输出头 **53 类**。原因：packed 1B 中 four_diff 仍难训好 p=19 |
 | 2026-10-02 | **R1 协议修复**（数值以当前 53 类为准）：OperationKey / packed_id+nuisance eval / macro checkpoint / analysis dataset / steering 分 split / sampler_seed；见 `docs/REFACTOR_R1_SPEC.md`、`docs/IMPLEMENTATION_NOTES.md`。目录搬家与 Phase2 optimizer 推迟 |
 | 2026-10-02 | **R1+ 补齐可改项**：packed_id 接进 `_task_loaders` 主评；t_mem/t_gen/t_iid + `first_stable_threshold.pt`；`train_segment(preserve)`；Fourier random/norm-matched/magnitude 对照；CSV DictWriter；RESEARCH §2.2/2.3 对齐。**仍差实验重跑**（见出门条件） |
+| 2026-10-02 | **1B 默认变体去掉 `one`**：改为 `all_same four_diff pair_same`（均为 4 query，每步 packs 对齐）。`one` 仅作遗留可选 |

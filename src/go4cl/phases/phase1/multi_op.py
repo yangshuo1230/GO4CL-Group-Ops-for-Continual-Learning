@@ -2,10 +2,10 @@
 
 Compares (default):
 
-1. ``one`` — single operation (focal modulus p)
+1. ``all_same`` — four ops, all modulus p (same-mod baseline; 4 queries)
 2. ``four_diff`` — four ops, four moduli (p, q nearby; plus p2, p3)
 3. ``pair_same`` — four ops; first two share p; p2, p3 unchanged
-4. optional ``all_same`` — four ops all use p
+4. optional ``one`` — legacy single-op (1 query); **not** used in default 1B
 
 Locked training defaults (1B):
   train_frac=0.8, weight_decay=0.5, steps=100000, n_aliases=16, batch_size=8192
@@ -33,7 +33,7 @@ DEFAULT_TRAIN_FRAC = 0.8
 DEFAULT_WEIGHT_DECAY = 0.5
 DEFAULT_STEPS = 100_000
 DEFAULT_BATCH_SIZE = 8192
-DEFAULT_VARIANTS: tuple[str, ...] = ("one", "four_diff", "pair_same")
+DEFAULT_VARIANTS: tuple[str, ...] = ("all_same", "four_diff", "pair_same")
 
 
 def run_multi_op(args: argparse.Namespace) -> None:
@@ -217,7 +217,7 @@ def add_multi_op_args(parser: argparse.ArgumentParser) -> None:
         type=str,
         nargs="+",
         default=list(DEFAULT_VARIANTS),
-        help=f"Variants to run (default {list(DEFAULT_VARIANTS)}; also all_same)",
+        help=f"Variants to run (default {list(DEFAULT_VARIANTS)}; legacy: one)",
     )
     parser.add_argument("--task-seeds", type=int, nargs="+", default=[0, 1])
     parser.add_argument("--model-seeds", type=int, nargs="+", default=[0])

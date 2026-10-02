@@ -13,33 +13,29 @@ from go4cl.tasks.multi_op import (
 
 def test_variants_share_structure() -> None:
     seed = 3
-    one = build_multi_op_pair("one", task_seed=seed)
+    all_same = build_multi_op_pair("all_same", task_seed=seed)
     diff = build_multi_op_pair("four_diff", task_seed=seed)
     same = build_multi_op_pair("pair_same", task_seed=seed)
 
-    assert one.task_a.n_ops == 1
+    assert all_same.task_a.n_ops == 4
     assert diff.task_a.n_ops == 4
     assert same.task_a.n_ops == 4
 
-    # First latent edge/slot match across variants
-    o0 = one.task_a.operations[0]
-    d0 = diff.task_a.by_latent()[0]
-    s0 = same.task_a.by_latent()[0]
-    assert o0.operand_pair == d0.operand_pair == s0.operand_pair
-    assert o0.slot == d0.slot == s0.slot
-    assert o0.modulus == d0.modulus == s0.modulus
+    # Edges/slots identical across 4-op variants; only moduli differ
+    for z in range(4):
+        a = all_same.task_a.by_latent()[z]
+        d = diff.task_a.by_latent()[z]
+        s = same.task_a.by_latent()[z]
+        assert a.operand_pair == d.operand_pair == s.operand_pair
+        assert a.slot == d.slot == s.slot
+
+    # all_same: every latent uses focal p
+    assert len({op.modulus for op in all_same.task_a.operations}) == 1
+    assert all_same.task_a.by_latent()[0].modulus == diff.task_a.by_latent()[0].modulus
 
     # pair_same shares modulus on latents 0 and 1; four_diff does not
     assert same.task_a.by_latent()[0].modulus == same.task_a.by_latent()[1].modulus
     assert diff.task_a.by_latent()[0].modulus != diff.task_a.by_latent()[1].modulus
-
-    # Remaining edges match between four_diff and pair_same
-    for z in range(4):
-        assert (
-            diff.task_a.by_latent()[z].operand_pair
-            == same.task_a.by_latent()[z].operand_pair
-        )
-        assert diff.task_a.by_latent()[z].slot == same.task_a.by_latent()[z].slot
 
 
 def test_all_same_moduli() -> None:

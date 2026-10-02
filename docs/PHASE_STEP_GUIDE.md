@@ -143,12 +143,12 @@ bash scripts/phase1/plot_mech_figures.sh
 
 | 变体 | CLI 名 | 模数分配 |
 |------|--------|----------|
-| 单操作 | `one` | \((p)\) |
+| 全同模数（4 query） | `all_same` | \((p,p,p,p)\) |
 | 四操作异模数 | `four_diff` | \((p,q,p_2,p_3)\)，其中 \((p,q)\) 为近邻模数对 |
 | 一对同模数 | `pair_same` | \((p,p,p_2,p_3)\) |
-| （可选）全同模数 | `all_same` | \((p,p,p,p)\) |
+| （遗留）真单操作 | `one` | \((p)\) — **默认不用**；暴露量与四操作不对齐 |
 
-同模数操作共用同一套 residue-pair train/val/test split。默认跑 `one four_diff pair_same` × 多个 `task_seed`。
+同模数操作共用同一套 residue-pair train/val/test split。默认跑 `all_same four_diff pair_same` × 多个 `task_seed`（三者均为 4 query，每步 context 数相同）。
 
 **要回答的问题：** 第二个同模数操作是否缩短 \(t_{\mathrm{gen}}\) / 提高 held-out？相对近邻异模数对照，促进是否存在？
 
@@ -161,7 +161,7 @@ bash scripts/phase1/plot_mech_figures.sh
 bash scripts/phase1/multi_op.sh --gpus 0,1,2,3,4,5 --workers-per-gpu 1
 # 或
 uv run go4cl phase1 multi-op \
-  --variants one four_diff pair_same \
+  --variants all_same four_diff pair_same \
   --task-seeds 0 1 \
   --train-frac 0.8 --weight-decay 0.5 --batch-size 8192 --steps 100000 \
   --gpus 0,1,2,3,4,5
