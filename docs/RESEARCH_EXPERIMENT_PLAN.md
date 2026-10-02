@@ -217,7 +217,7 @@ $$
 
 每个操作获得相同的 query 采样概率和样本暴露数。两个同模数操作共享相同的 residue-pair train/test split，使测试对不会通过另一个操作泄漏。
 
-**1B 锁定训练超参：** `train_frac=0.8`，`weight_decay=0.5`，`batch_size=8192`（有放回），`steps=100000`，`n_aliases=16`。
+**1B 锁定训练超参：** `train_frac=0.8`，`weight_decay=0.5`，`batch_size=8192`（每步 query 数），`steps=100000`，`n_aliases=16`（仅 val/test）。训练为 **packed online**：各 op 从 train residue 池有放回各抽一对，拼成一条 8 位上下文，再对四个 query 各出一条（等权暴露）。
 
 核心比较应保持总操作数为四，只改变其中一对操作是“相同模数”还是“规模相近的不同模数”。跨条件匹配模型初始化、数据量、query 暴露数、operand matching 和槽位安排，并在多个模数与位置组合上重复，避免把某个特定模数或槽位的难度误认为促进效应。
 

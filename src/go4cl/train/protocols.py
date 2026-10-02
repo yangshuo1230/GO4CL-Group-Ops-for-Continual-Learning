@@ -14,6 +14,8 @@ from go4cl.data.dataset import (
     make_balanced_joint_loader,
     make_loader,
 )
+from go4cl.data.manifest import DataManifest
+from go4cl.data.packed import make_packed_multi_op_train_loader
 from go4cl.metrics.behavioral import evaluate, forgetting
 from go4cl.model.transformer import ModelConfig, ModularTransformer
 from go4cl.train.loop import TrainConfig, TrainState, train_steps
@@ -50,11 +52,18 @@ def _task_loaders(
     *,
     batch_size: int | None,
     train_replacement: bool = False,
+    train_seed: int = 0,
 ) -> dict[str, dict[str, DataLoader]]:
+    manifest_path = data_root / "manifest.json"
+    manifest = DataManifest.load(manifest_path) if manifest_path.is_file() else None
+    packed = bool(manifest and manifest.train_mode == "packed_online")
+
     out: dict[str, dict[str, DataLoader]] = {}
     for task_name, task_id in (("A", 0), ("B", 1)):
         out[task_name] = {}
         for split in ("train", "val", "test"):
+            if packed and split == "train":
+                continue
             ds = ModularAdditionDataset.from_disk(data_root, task_name, split, task_id)  # type: ignore[arg-type]
             is_train = split == "train"
             # Train: optional fixed-size with-replacement batches.
@@ -64,6 +73,21 @@ def _task_loaders(
                 batch_size=batch_size if is_train else None,
                 shuffle=is_train and not (train_replacement and batch_size),
                 replacement=bool(is_train and train_replacement and batch_size),
+            )
+        if packed:
+            assert manifest is not None
+            if batch_size is None or batch_size <= 0:
+                raise ValueError("packed_online train requires a positive batch_size")
+            task = (
+                manifest.task_pair.task_a
+                if task_name == "A"
+                else manifest.task_pair.task_b
+            )
+            out[task_name]["train"] = make_packed_multi_op_train_loader(
+                task,
+                manifest.residue_splits,
+                batch_size=int(batch_size),
+                seed=int(train_seed) + 10_007 * int(task_id),
             )
     return out
 
@@ -104,7 +128,10 @@ def run_protocol(
         data_root,
         batch_size=train_cfg.batch_size,
         train_replacement=bool(train_cfg.train_replacement),
+        train_seed=model_seed,
     )
+    packed_a = getattr(loaders["A"]["train"], "n_packs", None)
+    packed_b = getattr(loaders["B"]["train"], "n_packs", None)
     # Resolve effective train batch sizes for logging
     effective_bs = {
         "A_train": loaders["A"]["train"].batch_size,
@@ -112,6 +139,9 @@ def run_protocol(
         "A_train_n": len(loaders["A"]["train"].dataset),  # type: ignore[arg-type]
         "B_train_n": len(loaders["B"]["train"].dataset),  # type: ignore[arg-type]
         "train_replacement": bool(train_cfg.train_replacement),
+        "train_mode": "packed_online" if packed_a is not None else "fixed",
+        "n_packs_per_step_A": packed_a,
+        "n_packs_per_step_B": packed_b,
     }
 
     run_name = wandb_name or f"{protocol}_ms{model_seed}"

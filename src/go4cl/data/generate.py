@@ -9,6 +9,7 @@ from typing import Any, Literal
 import numpy as np
 
 from go4cl.constants import (
+    CONTEXT_LENGTH,
     NUM_DIGITS,
     QUERY_TOKEN_IDS,
     SEQ_LEN_OPERANDS,
@@ -162,12 +163,16 @@ def generate_task_datasets(
     ratios: tuple[float, float, float] = (0.6, 0.2, 0.2),
     n_train_pairs: int | None = None,
     experiment_id: str = "default",
+    skip_train: bool = False,
 ) -> tuple[DataManifest, dict[str, dict[str, list[Example]]]]:
     """
     Returns (manifest, datasets) where datasets[task_name][split] = examples.
 
     If ``n_train_pairs`` is set, use a fixed train residue-pair count (Phase 1A);
     otherwise split by ``ratios``.
+
+    ``skip_train=True`` writes empty train lists (Phase 1B packed online train);
+    residue splits are still stored on the manifest.
     """
     tasks = [task_pair.task_a, task_pair.task_b]
     splits = build_shared_residue_splits(
@@ -189,6 +194,8 @@ def generate_task_datasets(
         for op in task.operations:
             split = splits[op.modulus]
             for split_name in ("train", "val", "test"):
+                if skip_train and split_name == "train":
+                    continue
                 exs = generate_examples_for_op(
                     rng,
                     task,
@@ -213,7 +220,9 @@ def generate_task_datasets(
         "n_nuisance_contexts": n_nuisance_contexts,
         "n_train_pairs": n_train_pairs,
         "data_seed": data_seed,
+        "skip_train": skip_train,
     }
+    train_mode = "packed_online" if skip_train else "fixed"
     manifest = DataManifest(
         experiment_id=experiment_id,
         data_seed=data_seed,
@@ -224,6 +233,7 @@ def generate_task_datasets(
         samples_per_slot=counts,
         generation_rule=GENERATION_RULE,
         dataset_hash=hash_payload(hash_body),
+        train_mode=train_mode,
     )
     return manifest, datasets
 
@@ -241,12 +251,22 @@ def save_datasets(
             path = root / task_name / f"{split_name}.npz"
             path.parent.mkdir(parents=True, exist_ok=True)
             payload = [e.to_dict() for e in examples]
+            if payload:
+                tokens = np.asarray([e["tokens"] for e in payload], dtype=np.int64)
+                labels = np.asarray([e["label"] for e in payload], dtype=np.int64)
+                slots = np.asarray([e["slot"] for e in payload], dtype=np.int64)
+                moduli = np.asarray([e["modulus"] for e in payload], dtype=np.int64)
+            else:
+                tokens = np.zeros((0, CONTEXT_LENGTH), dtype=np.int64)
+                labels = np.zeros((0,), dtype=np.int64)
+                slots = np.zeros((0,), dtype=np.int64)
+                moduli = np.zeros((0,), dtype=np.int64)
             np.savez_compressed(
                 path,
-                tokens=np.asarray([e["tokens"] for e in payload], dtype=np.int64),
-                labels=np.asarray([e["label"] for e in payload], dtype=np.int64),
-                slots=np.asarray([e["slot"] for e in payload], dtype=np.int64),
-                moduli=np.asarray([e["modulus"] for e in payload], dtype=np.int64),
+                tokens=tokens,
+                labels=labels,
+                slots=slots,
+                moduli=moduli,
                 meta=np.asarray(payload, dtype=object),
             )
     return root

@@ -60,7 +60,7 @@ def run_multi_op(args: argparse.Namespace) -> None:
     print(
         f"[phase1/multi-op] locked cfg: train_frac={train_frac} wd={weight_decay} "
         f"steps={steps} aliases={args.n_aliases} lr={args.lr} "
-        f"batch_size={batch_size} (replacement)"
+        f"batch_size={batch_size} (packed online: {batch_size}//n_ops packs/step)"
     )
 
     metas: list[dict[str, Any]] = []
@@ -118,6 +118,7 @@ def run_multi_op(args: argparse.Namespace) -> None:
                         "train_frac": train_frac,
                         "n_aliases": meta["n_aliases"],
                         "n_train_a": meta["n_train_a"],
+                        "train_mode": meta.get("train_mode", "packed_online"),
                         "weight_decay": weight_decay,
                         "steps": steps,
                         "task_seed": meta["task_seed"],
@@ -138,7 +139,7 @@ def run_multi_op(args: argparse.Namespace) -> None:
     for meta in metas:
         print(
             f"  {meta['variant']:<10} mods={meta['moduli']}  "
-            f"A_train={meta['n_train_a']}"
+            f"A_val={meta['n_val_a']} train_mode={meta.get('train_mode')}"
         )
 
     results = run_job_pool(jobs, gpus=gpus, workers_per_gpu=workers_per_gpu)
@@ -164,6 +165,7 @@ def run_multi_op(args: argparse.Namespace) -> None:
             "wandb_project": args.wandb_project,
             "wandb_group": wandb_group,
             "train_replacement": True,
+            "train_mode": "packed_online",
         },
         datasets=metas,
         results=results,

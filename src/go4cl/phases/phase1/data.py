@@ -37,12 +37,13 @@ PHASE1A_GENERATION_RULE_FIXED = (
 DEFAULT_BATCH_SIZE = 2048
 DEFAULT_N_TRAIN_PAIRS = 150
 
-PHASE1B_GENERATION_RULE_FRAC = (
-    "Phase 1B: for each op, partition unordered residue pairs of its operand "
-    "positions by train_frac (val/test share the remainder); ops that share a "
-    "modulus reuse the same residue-pair split; for each pair emit n_aliases "
-    "raw aliases with x in 0..63; fill irrelevant digit positions uniformly "
-    "from 0..63 once per alias (n_nuisance_contexts=1)."
+PHASE1B_GENERATION_RULE_PACKED = (
+    "Phase 1B packed online train: residue-pair train/val/test splits per "
+    "modulus (shared across ops with the same p). Val/test: per-op aliases "
+    "written to disk. Train: do not pre-expand; each step draws one train "
+    "pair per op with replacement, packs them into one 8-digit context "
+    "(perfect matching; single-op fills unused positions uniformly), then "
+    "emits one example per query. n_aliases applies to val/test only."
 )
 
 
@@ -72,7 +73,7 @@ def prepare_multi_op_dataset(
     mod_tag = "-".join(str(m) for m in mods)
     tag = (
         f"multi_{variant}_m{mod_tag}"
-        f"_tr{train_frac:g}_ts{task_seed}_ds{data_seed}_a{n_aliases}_p1b"
+        f"_tr{train_frac:g}_ts{task_seed}_ds{data_seed}_a{n_aliases}_p1b_pack1"
     )
     data_dir = out / "data" / tag
     manifest_path = data_dir / "manifest.json"
@@ -80,7 +81,8 @@ def prepare_multi_op_dataset(
         manifest = DataManifest.load(manifest_path)
         print(
             f"[data] reuse {data_dir}  "
-            f"A_train={manifest.samples_per_slot['A']['train']}"
+            f"A_val={manifest.samples_per_slot['A']['val']}  "
+            f"train_mode={manifest.train_mode}"
         )
     else:
         pair = build_multi_op_pair(
@@ -93,16 +95,18 @@ def prepare_multi_op_dataset(
             n_nuisance_contexts=1,
             ratios=ratios,
             experiment_id=tag,
+            skip_train=True,
         )
-        manifest.generation_rule = PHASE1B_GENERATION_RULE_FRAC
+        manifest.generation_rule = PHASE1B_GENERATION_RULE_PACKED
+        manifest.train_mode = "packed_online"
         for split in manifest.residue_splits.values():
             assert_disjoint(split)
         save_datasets(data_dir, manifest, datasets)
         print(
             f"[data] wrote {data_dir}  "
-            f"A_train={manifest.samples_per_slot['A']['train']}  "
+            f"A_val={manifest.samples_per_slot['A']['val']}  "
             f"n_ops={pair.task_a.n_ops} mods={list(mods)}  "
-            f"hash={manifest.dataset_hash[:12]}"
+            f"train_mode=packed_online  hash={manifest.dataset_hash[:12]}"
         )
 
     return {
@@ -116,13 +120,14 @@ def prepare_multi_op_dataset(
         "train_frac": train_frac,
         "ratios": list(ratios),
         "n_aliases": n_aliases,
-        "n_train_a": int(manifest.samples_per_slot["A"]["train"]),
+        "n_train_a": 0,
         "n_val_a": int(manifest.samples_per_slot["A"]["val"]),
         "n_test_a": int(manifest.samples_per_slot["A"]["test"]),
+        "train_mode": manifest.train_mode,
         "dataset_hash": manifest.dataset_hash,
         "pair_id": manifest.task_pair.pair_id,
         "ops": [op.to_dict() for op in manifest.task_pair.task_a.operations],
-        "generation_rule": PHASE1B_GENERATION_RULE_FRAC,
+        "generation_rule": PHASE1B_GENERATION_RULE_PACKED,
         "batch_size": DEFAULT_BATCH_SIZE,
     }
 

@@ -35,6 +35,7 @@ class DataManifest:
     samples_per_slot: dict[str, dict[str, int]]  # task -> split -> count
     generation_rule: str
     dataset_hash: str
+    train_mode: str = "fixed"  # fixed | packed_online
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -49,6 +50,7 @@ class DataManifest:
             "samples_per_slot": self.samples_per_slot,
             "generation_rule": self.generation_rule,
             "dataset_hash": self.dataset_hash,
+            "train_mode": self.train_mode,
         }
 
     @classmethod
@@ -66,6 +68,7 @@ class DataManifest:
             samples_per_slot=d["samples_per_slot"],
             generation_rule=str(d["generation_rule"]),
             dataset_hash=str(d["dataset_hash"]),
+            train_mode=str(d.get("train_mode", "fixed")),
         )
 
     def save(self, path: Path | str) -> None:

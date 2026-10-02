@@ -35,7 +35,7 @@
 | 1A-0 | Grokking regime 校准（中等模数） | `go4cl phase1 calibrate` | `runs/phase1/calibrate/` | 已完成 | 锁定试跑：`train_frac=0.8` / `wd=0.3` / `steps` 见 1A；`bs=2048` 有放回 | 2026-09-30 |
 | 1A | 单操作 × 八模数扫描 | `go4cl phase1 scan-moduli` | `runs/phase1/scan_moduli/` | 已完成 | 比例版试跑完成；大模数可学到高 held-out；**暂不挡 1B** | 2026-09-30 |
 | 1A-mech | **单模数机理分析**（Fourier / 探针 / attention / 消融 / 组合位点） | `go4cl phase1 mech-single` | `runs/phase1/mech_single/` | 进行中 | **p=31 MVP 结论已齐**（组合在 L0；频率必要；head 因果不均）。汇总：[`runs/phase1/mech_single/p31_summary/`](../runs/phase1/mech_single/p31_summary/)；索引 [`README`](../runs/phase1/mech_single/README.md)。待补：多模数复现、训练轨迹 | 2026-10-02 |
-| 1B | 多操作单任务 / 同模数促进 | `go4cl phase1 multi-op` | `runs/phase1/multi_op/` | 进行中 | 锁定：`train_frac=0.8` / `wd=0.5` / `bs=8192` / `steps=100k` / `aliases=16`；变体 `one`/`four_diff`/`pair_same` | 2026-10-02 |
+| 1B | 多操作单任务 / 同模数促进 | `go4cl phase1 multi-op` | `runs/phase1/multi_op/` | 进行中 | 锁定：`train_frac=0.8` / `wd=0.5` / `bs=8192` query/步 / `steps=100k`；**packed online 等权暴露**（`_pack1`）；旧 concat train 作废 | 2026-10-02 |
 | 1C | 多操作对照机理（共享计算 / 移植） | `go4cl phase1 mechanisms` | `runs/phase1/mechanisms/` | 未开始 | CLI 占位；依赖 1B | |
 
 
@@ -103,3 +103,4 @@
 | 2026-10-02 | **1A-mech 组合位点**：全层 mid/post 信息阶梯、逐层 attn/MLP knockout、top-freq 谐波 \(R^2\)；产出 `phase1_mech-single_composition.csv`；`--skip-composition` |
 | 2026-10-02 | **1A-mech 逐 head 消融**：每层每个 attention head 置零后测 \(\Delta\)acc；写入 composition CSV（`kind=head_knockout`） |
 | 2026-10-02 | **1A-mech 结果整理**：规范目录 `runs/phase1/mech_single/p31_summary/`（结论+图）；出图脚本 `scripts/phase1/plot_mech_figures.sh`；stamp 索引见 `mech_single/README.md` |
+| 2026-10-02 | **1B packed 多 query 训练**：不再预生成/拼接各模数 train 集；每步各 op 有放回抽一对拼成一条上下文，对四个 query 各训一次。val/test 仍落盘。数据 tag `_pack1` |

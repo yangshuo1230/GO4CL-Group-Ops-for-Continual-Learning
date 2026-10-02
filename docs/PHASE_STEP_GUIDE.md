@@ -137,7 +137,7 @@ bash scripts/phase1/plot_mech_figures.sh
 
 ### 1B · `phase1 multi-op` — 多操作单任务与同模数促进
 
-**依赖：** 1A 配置可用。1B 锁定训练：`train_frac=0.8`、`wd=0.5`、`steps=100k`、`aliases=16`、`bs=8192` 有放回。1A-mech 可后补。
+**依赖：** 1A 配置可用。1B 锁定训练：`train_frac=0.8`、`wd=0.5`、`steps=100k`、`aliases=16`（仅 val/test 展开）、`bs=8192` query 样本/步。**训练为 packed online**：每步从各 op 的 train residue 池有放回各抽一对，拼成一条 8 位上下文，再对 4 个 query 各出一条（等权暴露）。旧 concat-train stamp 作废，数据 tag 含 `_pack1`。1A-mech 可后补。
 
 **内容（对照设计，同一 `task_seed` 共享 operand matching + slots）：**
 

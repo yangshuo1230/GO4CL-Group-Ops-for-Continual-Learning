@@ -2,7 +2,8 @@
 # Phase 1B: multi-op / same-modulus facilitation training.
 #
 # Default variants: one | four_diff | pair_same
-# Locked cfg: train_frac=0.8 wd=0.5 steps=100000 aliases=16 bs=8192 (replacement)
+# Locked cfg: train_frac=0.8 wd=0.5 steps=100000 aliases=16 (val/test)
+#   bs=8192 query examples/step, packed online train (equal op exposure)
 #
 # Usage:
 #   bash scripts/phase1/multi_op.sh --gpus 0,1,2,3,4,5 --workers-per-gpu 1
