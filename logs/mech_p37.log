@@ -1,0 +1,14 @@
+[phase1/mech-single] out=runs/phase1/mech_single/20261002_cross/p37
+[phase1/mech-single] ckpt_root=runs/phase1/scan_moduli/20260930_223737
+[phase1/mech-single] moduli=[37] kinds=['final', 'best'] device=cuda:0
+[phase1/mech-single] mech_layers=[0, 1] (resid_post query; not final pre-head)
+[phase1/mech-single] composition=on
+  analyzing p=37 kind=final ckpt=a_only_final.pt data=single_p37_tr0.8_ts0_ds0_a16_p1a
+    test_acc=1.0000 | L0:probe=1.0/rand=0.009290540590882301 steer=1.0/shuf=0.0 | L1:probe=1.0/rand=0.010135135613381863 steer=1.0/shuf=0.018581081181764603 | compose=L0(ladder_jump=L0) | worst_head=L0H3(Δ=-0.6807432472705841)
+  analyzing p=37 kind=best ckpt=best.pt data=single_p37_tr0.8_ts0_ds0_a16_p1a
+    test_acc=1.0000 | L0:probe=1.0/rand=0.009290540590882301 steer=1.0/shuf=0.0 | L1:probe=1.0/rand=0.010135135613381863 steer=1.0/shuf=0.0 | compose=L0(ladder_jump=L0) | worst_head=L0H2(Δ=-0.4560810923576355)
+
+report: runs/phase1/mech_single/20261002_cross/p37/phase1_mech-single_report.json
+csv:    runs/phase1/mech_single/20261002_cross/p37/phase1_mech-single_summary.csv
+ablation curve: runs/phase1/mech_single/20261002_cross/p37/phase1_mech-single_ablation_curve.csv
+composition: runs/phase1/mech_single/20261002_cross/p37/phase1_mech-single_composition.csv
