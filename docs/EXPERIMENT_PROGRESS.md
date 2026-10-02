@@ -36,15 +36,16 @@
 | 1A | 单操作 × 八模数扫描 | `go4cl phase1 scan-moduli` | `runs/phase1/scan_moduli/` | 已完成 | 比例版试跑完成；大模数可学到高 held-out；**暂不挡 1B** | 2026-09-30 |
 | 1A-mech | **单模数机理分析**（Fourier / 探针 / attention / 消融 / 组合位点） | `go4cl phase1 mech-single` | `runs/phase1/mech_single/` | 已完成 | **八模数 final 复现 p=31**：组合在 L0；频率必要；L0 head 因果不均。跨模：[`20261002_cross/`](../runs/phase1/mech_single/20261002_cross/)；p31 细图：[`p31_summary/`](../runs/phase1/mech_single/p31_summary/)。可选：训练轨迹 | 2026-10-02 |
 | 1B | 多操作单任务 / 同模数促进 | `go4cl phase1 multi-op` | `runs/phase1/multi_op/` | 进行中 | 锁定：`train_frac=0.8` / `wd=0.5` / `bs=8192` query/步 / `steps=100k`；**packed online 等权暴露**（`_pack1`）；旧 concat train 作废 | 2026-10-02 |
-| 1C | 多操作对照机理（共享计算 / 移植） | `go4cl phase1 mechanisms` | `runs/phase1/mechanisms/` | 未开始 | CLI 占位；依赖 1B | |
+| 1C | 多操作对照机理（共享计算 / 移植） | `go4cl phase1 mechanisms` | `runs/phase1/mechanisms/` | 进行中 | MVP：`four_diff`[47,43,37,23] **best** — 行为达标但组合偏 L1/L2；Fourier 消融跨模串扰 → 共享特征。见 [`20261002_four_diff_47433723/`](../runs/phase1/mechanisms/20261002_four_diff_47433723/)。待：`pair_same` / 移植 | 2026-10-02 |
 
 
 **阶段一出门条件（进入阶段二前须满足）：**
 
-- [ ] 单任务在多数 seeds 上 held-out 准确率可靠
-- [ ] 统一训练配置已锁定（不按模数挑参）
-- [x] （推荐）1A-mech 至少在一个代表性模数上找到与行为一致的机理证据（p=31；见 `mech_single/p31_summary/`）；**八模数 final 已复现**（`mech_single/20261002_cross/`）
-- [ ] 1B：同模数促进 vs 近邻异模数对照有可复现行为结论
+- [ ] 单任务在多数 seeds 上 held-out 准确率可靠 → **需**新 𝒫（含 53）+ protocol v2 重跑；旧 47 类/含 19 结果仅归档
+- [~] 训练配置已锁定（1A 与 1B **两套**：1A `wd=0.3/bs=2048`；1B `wd=0.5/bs=8192/steps=100k/packed`）— 文档已钉死，勿再混为一套
+- [x] （推荐）1A-mech 至少在一个代表性模数上找到与行为一致的机理证据（p=31；见 `mech_single/p31_summary/`）；**八模数 final 已复现**（`mech_single/20261002_cross/`，旧 𝒫）
+- [ ] 1B：同模数促进 vs 近邻异模数对照有可复现行为结论 → **需** `four_diff` vs `pair_same` 在新协议上多 seed（建议 task×model ≥3×3，steps=100k）
+- [ ] 1C：在**新 1B packed_id ckpt**上重做；补 `pair_same`；naive Fourier 串扰结论已修正，勿当最终证据
 
 ---
 
@@ -105,3 +106,7 @@
 | 2026-10-02 | **1A-mech 结果整理**：规范目录 `runs/phase1/mech_single/p31_summary/`（结论+图）；出图脚本 `scripts/phase1/plot_mech_figures.sh`；stamp 索引见 `mech_single/README.md` |
 | 2026-10-02 | **1B packed 多 query 训练**：不再预生成/拼接各模数 train 集；每步各 op 有放回抽一对拼成一条上下文，对四个 query 各训一次。val/test 仍落盘。数据 tag `_pack1` |
 | 2026-10-02 | **1A-mech 跨模数复现**：对 \(\mathcal P\) 八模数跑完整 mech（final+best，同 `223737` ckpt）；p=31 五条结论在 final 上 8/8（top-1 频率崩塌 7/8，p=37 仍大跌至 0.59）。见 `mech_single/20261002_cross/` |
+| 2026-10-02 | **1C MVP**：`phase1 mechanisms` 对 multi-op 按 op 做 composition/attention/Fourier，并测跨模频率消融选择性。默认分析 concat-1B `four_diff`[47,43,37,23] best；结论：非独立 L0 复制电路，频率特征共享/串扰。`runs/phase1/mechanisms/20261002_four_diff_47433723/` |
+| 2026-10-02 | **暂换模数**：\(\mathcal P\) 中 \(19\to 53\)；近邻对改为 \((23,29),(31,37),(41,43),(47,53)\)；输出头 **53 类**。原因：packed 1B 中 four_diff 仍难训好 p=19 |
+| 2026-10-02 | **R1 协议修复**（数值以当前 53 类为准）：OperationKey / packed_id+nuisance eval / macro checkpoint / analysis dataset / steering 分 split / sampler_seed；见 `docs/REFACTOR_R1_SPEC.md`、`docs/IMPLEMENTATION_NOTES.md`。目录搬家与 Phase2 optimizer 推迟 |
+| 2026-10-02 | **R1+ 补齐可改项**：packed_id 接进 `_task_loaders` 主评；t_mem/t_gen/t_iid + `first_stable_threshold.pt`；`train_segment(preserve)`；Fourier random/norm-matched/magnitude 对照；CSV DictWriter；RESEARCH §2.2/2.3 对齐。**仍差实验重跑**（见出门条件） |

@@ -23,7 +23,7 @@ def test_split_covers_all_pairs(p: int) -> None:
     )
 
 
-@pytest.mark.parametrize("p", [19, 23, 29])
+@pytest.mark.parametrize("p", [23, 29, 53])
 def test_val_test_cover_labels_when_possible(p: int) -> None:
     split = stratified_residue_pair_split(p, data_seed=1)
     # Every label with >=3 pairs should appear in val and test

@@ -22,6 +22,7 @@ class ModularAdditionDataset(Dataset):
         slots: np.ndarray | None = None,
         moduli: np.ndarray | None = None,
         task_ids: np.ndarray | None = None,
+        latent_ids: np.ndarray | None = None,
     ) -> None:
         self.tokens = torch.as_tensor(tokens, dtype=torch.long)
         self.labels = torch.as_tensor(labels, dtype=torch.long)
@@ -40,6 +41,11 @@ class ModularAdditionDataset(Dataset):
             if task_ids is not None
             else torch.zeros(len(labels), dtype=torch.long)
         )
+        self.latent_ids = (
+            torch.as_tensor(latent_ids, dtype=torch.long)
+            if latent_ids is not None
+            else torch.full((len(labels),), -1, dtype=torch.long)
+        )
 
     def __len__(self) -> int:
         return int(self.tokens.shape[0])
@@ -51,6 +57,7 @@ class ModularAdditionDataset(Dataset):
             "slots": self.slots[idx],
             "moduli": self.moduli[idx],
             "task_ids": self.task_ids[idx],
+            "latent_ids": self.latent_ids[idx],
         }
 
     @classmethod
@@ -59,21 +66,30 @@ class ModularAdditionDataset(Dataset):
         labels = np.asarray([e.label for e in examples], dtype=np.int64)
         slots = np.asarray([e.slot for e in examples], dtype=np.int64)
         moduli = np.asarray([e.modulus for e in examples], dtype=np.int64)
-        task_ids = np.full(len(examples), task_id, dtype=np.int64)
-        return cls(tokens, labels, slots, moduli, task_ids)
+        task_ids = np.asarray(
+            [e.task_id if e.task_id >= 0 else task_id for e in examples],
+            dtype=np.int64,
+        )
+        latent_ids = np.asarray([e.latent_id for e in examples], dtype=np.int64)
+        return cls(tokens, labels, slots, moduli, task_ids, latent_ids)
 
     @classmethod
     def from_disk(
         cls, root: Path | str, task_name: str, split: SplitName, task_id: int
     ) -> ModularAdditionDataset:
         arrays = load_split_arrays(root, task_name, split)
-        task_ids = np.full(len(arrays["labels"]), task_id, dtype=np.int64)
+        n = len(arrays["labels"])
+        task_ids = np.full(n, task_id, dtype=np.int64)
+        latent_ids = arrays.get("latent_ids")
+        if latent_ids is None:
+            latent_ids = np.full(n, -1, dtype=np.int64)
         return cls(
             arrays["tokens"],
             arrays["labels"],
             arrays["slots"],
             arrays["moduli"],
             task_ids,
+            latent_ids,
         )
 
 
@@ -84,6 +100,7 @@ def concat_datasets(*datasets: ModularAdditionDataset) -> ModularAdditionDataset
         slots=torch.cat([d.slots for d in datasets], dim=0).numpy(),
         moduli=torch.cat([d.moduli for d in datasets], dim=0).numpy(),
         task_ids=torch.cat([d.task_ids for d in datasets], dim=0).numpy(),
+        latent_ids=torch.cat([d.latent_ids for d in datasets], dim=0).numpy(),
     )
 
 

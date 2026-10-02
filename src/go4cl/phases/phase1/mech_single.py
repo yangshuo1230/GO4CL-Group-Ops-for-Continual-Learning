@@ -112,6 +112,7 @@ def analyze_one(
     p = target.modulus
     i, j = target.operand_i, target.operand_j
     _, _, sum_test = operand_residues(test_cache.tokens, i=i, j=j, modulus=p)
+    _, _, sum_train = operand_residues(train_cache.tokens, i=i, j=j, modulus=p)
 
     emb_fourier = analyze_digit_embedding_fourier(model.tok_emb, modulus=p)
     # Layer-wise Fourier on early resid (by sum class)
@@ -182,6 +183,7 @@ def analyze_one(
     # reuse test_cache resid_post (already collected).
     for li in layers:
         resid = test_cache.resid_post[li].to(device)
+        ref = train_cache.resid_post[li].to(device)
         steering_by_layer[f"L{li}"] = steer_at_layer(
             model,
             resid,
@@ -191,6 +193,8 @@ def analyze_one(
             delta=steer_delta,
             alpha=steer_alpha,
             shuffle_means_seed=0,
+            reference_residuals=ref,
+            reference_labels=sum_train.to(device),
         )
 
     composition: dict[str, Any] | None = None

@@ -200,6 +200,69 @@ def fourier_ablation_on_embeddings(
         ablated_freqs = []
         delta_acc = 0.0
 
+    # Extra controls at k0 (random freqs, Frobenius-matched random, magnitude-only)
+    controls: dict[str, Any] = {}
+    if k0 and n_pairs:
+        rng = np.random.default_rng(0)
+        # Random conjugate pairs (same count as top-k)
+        rand_idx = rng.choice(n_pairs, size=k0, replace=False)
+        rand_pairs = [pairs[int(i)] for i in rand_idx]
+        rand_freqs = [f for p in rand_pairs for f in p["freqs"]]
+        rand_acc = _eval_ablate(rand_freqs)
+        controls["random_freq_pairs"] = {
+            "k": k0,
+            "freqs": rand_freqs,
+            "acc": rand_acc,
+            "delta_acc": float(rand_acc - baseline),
+        }
+
+        # Norm-matched: apply top ablation, measure ΔW Frobenius, then add
+        # a random zero-mean perturbation of matching Frobenius norm.
+        top_freqs = list(ablated_freqs)
+        top_ablated = project_out_freqs_from_digit_emb(
+            original, modulus=modulus, freqs=top_freqs
+        )
+        delta_w = (top_ablated - original.detach().cpu()).float()
+        fro = float(torch.linalg.norm(delta_w[:NUM_DIGITS]).item())
+        noise = torch.randn_like(delta_w[:NUM_DIGITS])
+        noise = noise - noise.mean(dim=0, keepdim=True)
+        nrm = float(torch.linalg.norm(noise).item()) + 1e-12
+        noise = noise * (fro / nrm)
+        matched = original.detach().cpu().clone()
+        matched[:NUM_DIGITS] = matched[:NUM_DIGITS].float() + noise
+        model.tok_emb.weight.data.copy_(
+            matched.to(device=original.device, dtype=original.dtype)
+        )
+        matched_acc = eval_accuracy(
+            model, loader, device=device, max_batches=max_batches
+        )
+        model.tok_emb.weight.data.copy_(original)
+        controls["norm_matched_random_subspace"] = {
+            "k": k0,
+            "embedding_delta_frobenius_norm": fro,
+            "acc": matched_acc,
+            "delta_acc": float(matched_acc - baseline),
+            "space": "digit_embedding",
+        }
+
+        # Magnitude control: scale digit emb to match relative Frobenius change
+        # without removing Fourier directions.
+        w0 = original[:NUM_DIGITS].detach().float()
+        rel = fro / (float(torch.linalg.norm(w0).item()) + 1e-12)
+        scaled = original.detach().cpu().clone()
+        scaled[:NUM_DIGITS] = scaled[:NUM_DIGITS].float() * (1.0 - rel)
+        model.tok_emb.weight.data.copy_(
+            scaled.to(device=original.device, dtype=original.dtype)
+        )
+        mag_acc = eval_accuracy(model, loader, device=device, max_batches=max_batches)
+        model.tok_emb.weight.data.copy_(original)
+        controls["magnitude_scale"] = {
+            "relative_parameter_change": rel,
+            "acc": mag_acc,
+            "delta_acc": float(mag_acc - baseline),
+        }
+
+    model.tok_emb.weight.data.copy_(original)
     return {
         "baseline_acc": baseline,
         "ablated_acc": ablated_acc,
@@ -212,6 +275,7 @@ def fourier_ablation_on_embeddings(
         "sweep_ks": ks,
         "important_curve": important_curve,
         "unimportant_curve": unimportant_curve,
+        "controls": controls,
     }
 
 
@@ -226,6 +290,104 @@ def _class_means(vectors: torch.Tensor, labels: torch.Tensor, n_classes: int) ->
     return means
 
 
+def estimate_class_means(
+    reference_residuals: torch.Tensor,
+    reference_labels: torch.Tensor,
+    *,
+    n_classes: int,
+) -> torch.Tensor:
+    """Estimate class means on a reference split (train/val). Never use test here."""
+    return _class_means(
+        reference_residuals, reference_labels.long(), int(n_classes)
+    )
+
+
+@torch.no_grad()
+def evaluate_steering(
+    model: ModularTransformer,
+    residuals: torch.Tensor,
+    labels: torch.Tensor,
+    *,
+    class_means: torch.Tensor,
+    modulus: int,
+    delta: int = 1,
+    alpha: float = 1.0,
+    site: str = "final_query_resid",
+    layer_idx: int | None = None,
+    shuffle_means_seed: int | None = 0,
+) -> dict[str, Any]:
+    """Apply precomputed class means on an evaluation split (typically test).
+
+    ``residuals`` for final-site steering are query vectors [B, D]; for layer
+    steering pass resid_post [B, T, D] and set ``layer_idx``.
+    """
+    device = residuals.device
+    model = model.to(device)
+    model.eval()
+    y = labels.to(device).long()
+    means = class_means.to(device)
+    targets = (y + int(delta)) % modulus
+
+    if layer_idx is None:
+        h = residuals.to(device)
+        if h.dim() == 3:
+            h = h[:, -1, :]
+        base_logits = model.head(h)
+        direction = means[targets] - means[y]
+        steer_logits = model.head(h + float(alpha) * direction)
+
+        def _apply_shuf(means_tbl: torch.Tensor) -> torch.Tensor:
+            d = means_tbl[targets] - means_tbl[y]
+            return model.head(h + float(alpha) * d)
+    else:
+        resid = residuals.to(device)
+        h = resid[:, -1, :]
+        base = model.continue_from_layer(resid, layer_idx=layer_idx)
+        base_logits = base["logits"]
+
+        def _apply(means_tbl: torch.Tensor) -> torch.Tensor:
+            direction = means_tbl[targets] - means_tbl[y]
+            edited = resid.clone()
+            edited[:, -1, :] = h + float(alpha) * direction
+            return model.continue_from_layer(edited, layer_idx=layer_idx)["logits"]
+
+        steer_logits = _apply(means)
+        _apply_shuf = _apply
+
+    base_pred = base_logits.argmax(dim=-1)
+    base_acc = float((base_pred == y).float().mean().item())
+    steer_pred = steer_logits.argmax(dim=-1)
+    steer_to_target = float((steer_pred == targets).float().mean().item())
+    steer_keep_true = float((steer_pred == y).float().mean().item())
+    gather_t = steer_logits.gather(1, targets.view(-1, 1)).squeeze(1)
+    base_t = base_logits.gather(1, targets.view(-1, 1)).squeeze(1)
+
+    result: dict[str, Any] = {
+        "site": site if layer_idx is None else f"resid_post_L{layer_idx}",
+        "delta": int(delta),
+        "alpha": float(alpha),
+        "n": int(y.shape[0]),
+        "baseline_acc_true": base_acc,
+        "steered_acc_target": steer_to_target,
+        "steered_acc_true": steer_keep_true,
+        "mean_logit_target_gain": float((gather_t - base_t).mean().item()),
+        "chance": 1.0 / max(modulus, 1),
+        "direction_source": "external_class_means",
+    }
+    if shuffle_means_seed is not None:
+        g = torch.Generator(device="cpu")
+        g.manual_seed(int(shuffle_means_seed))
+        perm = torch.randperm(modulus, generator=g).to(device)
+        pred_s = _apply_shuf(means[perm]).argmax(dim=-1)
+        result["shuffled_steered_acc_target"] = float(
+            (pred_s == targets).float().mean().item()
+        )
+        result["steered_minus_shuffled"] = float(
+            steer_to_target - result["shuffled_steered_acc_target"]
+        )
+    return result
+
+
 @torch.no_grad()
 def steer_query_resid_sum(
     model: ModularTransformer,
@@ -236,62 +398,42 @@ def steer_query_resid_sum(
     delta: int = 1,
     alpha: float = 1.0,
     shuffle_means_seed: int | None = 0,
+    class_means: torch.Tensor | None = None,
+    reference_residuals: torch.Tensor | None = None,
+    reference_labels: torch.Tensor | None = None,
 ) -> dict[str, Any]:
     """Directionally edit *final* query residual (pre-head) toward another sum.
 
-    Prefer ``steer_at_layer`` for mid-layer interventions; final-layer steering
-    is nearly tautological once the unembed already decodes the sum.
+    Prefer ``class_means`` or train/val ``reference_*`` so directions are not
+    estimated on the evaluation set. Legacy (means from ``query_resid``) is
+    marked ``direction_source=eval_set_legacy``.
     """
-    device = query_resid.device
-    model = model.to(device)
-    model.eval()
-    h = query_resid.to(device)
-    y = sum_labels.to(device).long()
-    means = _class_means(h, y, modulus)
-    targets = (y + int(delta)) % modulus
+    if class_means is not None:
+        means = class_means
+        source = "external_class_means"
+    elif reference_residuals is not None and reference_labels is not None:
+        href = reference_residuals
+        if href.dim() == 3:
+            href = href[:, -1, :]
+        means = estimate_class_means(href, reference_labels, n_classes=modulus)
+        source = "reference_split"
+    else:
+        means = _class_means(query_resid, sum_labels.long(), modulus)
+        source = "eval_set_legacy"
 
-    base_logits = model.head(h)
-    base_pred = base_logits.argmax(dim=-1)
-    base_acc = float((base_pred == y).float().mean().item())
-
-    direction = means[targets] - means[y]
-    h_steer = h + float(alpha) * direction
-    steer_logits = model.head(h_steer)
-    steer_pred = steer_logits.argmax(dim=-1)
-    steer_to_target = float((steer_pred == targets).float().mean().item())
-    steer_keep_true = float((steer_pred == y).float().mean().item())
-    gather_t = steer_logits.gather(1, targets.view(-1, 1)).squeeze(1)
-    gather_y = steer_logits.gather(1, y.view(-1, 1)).squeeze(1)
-    base_t = base_logits.gather(1, targets.view(-1, 1)).squeeze(1)
-    base_y = base_logits.gather(1, y.view(-1, 1)).squeeze(1)
-
-    result: dict[str, Any] = {
-        "site": "final_query_resid",
-        "delta": int(delta),
-        "alpha": float(alpha),
-        "n": int(h.shape[0]),
-        "baseline_acc_true": base_acc,
-        "steered_acc_target": steer_to_target,
-        "steered_acc_true": steer_keep_true,
-        "mean_logit_target_gain": float((gather_t - base_t).mean().item()),
-        "mean_logit_true_change": float((gather_y - base_y).mean().item()),
-        "chance": 1.0 / max(modulus, 1),
-    }
-
-    if shuffle_means_seed is not None:
-        g = torch.Generator(device="cpu")
-        g.manual_seed(int(shuffle_means_seed))
-        perm = torch.randperm(modulus, generator=g).to(device)
-        means_shuf = means[perm]
-        direction_s = means_shuf[targets] - means_shuf[y]
-        h_s = h + float(alpha) * direction_s
-        pred_s = model.head(h_s).argmax(dim=-1)
-        result["shuffled_steered_acc_target"] = float(
-            (pred_s == targets).float().mean().item()
-        )
-        result["steered_minus_shuffled"] = float(
-            steer_to_target - result["shuffled_steered_acc_target"]
-        )
+    result = evaluate_steering(
+        model,
+        query_resid,
+        sum_labels,
+        class_means=means,
+        modulus=modulus,
+        delta=delta,
+        alpha=alpha,
+        site="final_query_resid",
+        layer_idx=None,
+        shuffle_means_seed=shuffle_means_seed,
+    )
+    result["direction_source"] = source
     return result
 
 
@@ -306,60 +448,40 @@ def steer_at_layer(
     delta: int = 1,
     alpha: float = 1.0,
     shuffle_means_seed: int | None = 0,
+    class_means: torch.Tensor | None = None,
+    reference_residuals: torch.Tensor | None = None,
+    reference_labels: torch.Tensor | None = None,
 ) -> dict[str, Any]:
     """Steer query residual *after* ``layer_idx``, then continue later layers + head.
 
     ``resid_post``: [B, T, D] cached residual after that layer's MLP.
-    Intervention only edits the query position (index -1).
+    Prefer reference/train means via ``class_means`` or ``reference_*``.
     """
-    device = resid_post.device
-    model = model.to(device)
-    model.eval()
-    resid = resid_post.to(device)
-    y = sum_labels.to(device).long()
-    h = resid[:, -1, :]
-    means = _class_means(h, y, modulus)
-    targets = (y + int(delta)) % modulus
+    if class_means is not None:
+        means = class_means
+        source = "external_class_means"
+    elif reference_residuals is not None and reference_labels is not None:
+        href = reference_residuals
+        if href.dim() == 3:
+            href = href[:, -1, :]
+        means = estimate_class_means(href, reference_labels, n_classes=modulus)
+        source = "reference_split"
+    else:
+        means = _class_means(resid_post[:, -1, :], sum_labels.long(), modulus)
+        source = "eval_set_legacy"
 
-    base = model.continue_from_layer(resid, layer_idx=layer_idx)
-    base_pred = base["logits"].argmax(dim=-1)
-    base_acc = float((base_pred == y).float().mean().item())
-
-    def _apply(means_tbl: torch.Tensor) -> torch.Tensor:
-        direction = means_tbl[targets] - means_tbl[y]
-        edited = resid.clone()
-        edited[:, -1, :] = h + float(alpha) * direction
-        return model.continue_from_layer(edited, layer_idx=layer_idx)["logits"]
-
-    steer_logits = _apply(means)
-    steer_pred = steer_logits.argmax(dim=-1)
-    steer_to_target = float((steer_pred == targets).float().mean().item())
-    steer_keep_true = float((steer_pred == y).float().mean().item())
-    gather_t = steer_logits.gather(1, targets.view(-1, 1)).squeeze(1)
-    base_t = base["logits"].gather(1, targets.view(-1, 1)).squeeze(1)
-
-    result: dict[str, Any] = {
-        "site": f"resid_post_L{layer_idx}",
-        "layer_idx": int(layer_idx),
-        "delta": int(delta),
-        "alpha": float(alpha),
-        "n": int(resid.shape[0]),
-        "baseline_acc_true": base_acc,
-        "steered_acc_target": steer_to_target,
-        "steered_acc_true": steer_keep_true,
-        "mean_logit_target_gain": float((gather_t - base_t).mean().item()),
-        "chance": 1.0 / max(modulus, 1),
-    }
-
-    if shuffle_means_seed is not None:
-        g = torch.Generator(device="cpu")
-        g.manual_seed(int(shuffle_means_seed))
-        perm = torch.randperm(modulus, generator=g).to(device)
-        pred_s = _apply(means[perm]).argmax(dim=-1)
-        result["shuffled_steered_acc_target"] = float(
-            (pred_s == targets).float().mean().item()
-        )
-        result["steered_minus_shuffled"] = float(
-            steer_to_target - result["shuffled_steered_acc_target"]
-        )
+    result = evaluate_steering(
+        model,
+        resid_post,
+        sum_labels,
+        class_means=means,
+        modulus=modulus,
+        delta=delta,
+        alpha=alpha,
+        site=f"resid_post_L{layer_idx}",
+        layer_idx=int(layer_idx),
+        shuffle_means_seed=shuffle_means_seed,
+    )
+    result["direction_source"] = source
+    result["layer_idx"] = int(layer_idx)
     return result

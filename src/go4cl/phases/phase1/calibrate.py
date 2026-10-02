@@ -27,7 +27,7 @@ from go4cl.phases.common import (
 from go4cl.phases.phase1.data import DEFAULT_BATCH_SIZE, prepare_single_op_dataset
 
 
-# Medium prime from the plan set {19,23,29,31,37,41,43,47}
+# Medium prime from the plan set {23,29,31,37,41,43,47,53}
 DEFAULT_CALIB_MODULUS = 31
 DEFAULT_TRAIN_FRACS: tuple[float, ...] = (0.4, 0.6, 0.8)
 DEFAULT_WEIGHT_DECAYS: tuple[float, ...] = (0.1, 0.3, 1.0)

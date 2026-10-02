@@ -47,16 +47,49 @@ class ProtocolResult:
     wandb_url: str | None = None
 
 
+def _eval_bundle(
+    loaders: dict[str, dict[str, DataLoader]],
+    *tasks: str,
+) -> dict[str, DataLoader]:
+    """Primary val (+ optional train_eval / iid / nuisance controls) for train_steps."""
+    out: dict[str, DataLoader] = {}
+    for task in tasks:
+        out[f"{task}_val"] = loaders[task]["val"]
+        if "train_eval" in loaders[task]:
+            out[f"{task}_train_eval"] = loaders[task]["train_eval"]
+        if "iid" in loaders[task]:
+            out[f"{task}_iid"] = loaders[task]["iid"]
+        if "val_nuisance" in loaders[task]:
+            out[f"{task}_val_nuisance"] = loaders[task]["val_nuisance"]
+    return out
+
+
 def _task_loaders(
     data_root: Path,
     *,
     batch_size: int | None,
     train_replacement: bool = False,
     train_seed: int = 0,
+    sampler_seed: int | None = None,
+    eval_n_per_operation: int = 256,
+    eval_seed: int = 0,
 ) -> dict[str, dict[str, DataLoader]]:
+    """Build train/val/test loaders.
+
+    For ``packed_online`` manifests:
+      - train: replayable packed stream
+      - val/test: **packed_id** (primary; distractors from train pool)
+      - val_nuisance / test_nuisance: on-disk nuisance_random control
+      - train_eval: fixed packed_id analysis set from train pools (t_mem)
+      - iid: packed_id with all ops from train pools (t_iid)
+    """
+    from go4cl.data.context import build_analysis_dataset
+    from go4cl.data.eval_contexts import make_eval_context_loader
+
     manifest_path = data_root / "manifest.json"
     manifest = DataManifest.load(manifest_path) if manifest_path.is_file() else None
     packed = bool(manifest and manifest.train_mode == "packed_online")
+    stream_seed = int(sampler_seed if sampler_seed is not None else train_seed)
 
     out: dict[str, dict[str, DataLoader]] = {}
     for task_name, task_id in (("A", 0), ("B", 1)):
@@ -66,8 +99,6 @@ def _task_loaders(
                 continue
             ds = ModularAdditionDataset.from_disk(data_root, task_name, split, task_id)  # type: ignore[arg-type]
             is_train = split == "train"
-            # Train: optional fixed-size with-replacement batches.
-            # Eval: full split, no replacement (stable metrics).
             out[task_name][split] = make_loader(
                 ds,
                 batch_size=batch_size if is_train else None,
@@ -87,7 +118,46 @@ def _task_loaders(
                 task,
                 manifest.residue_splits,
                 batch_size=int(batch_size),
-                seed=int(train_seed) + 10_007 * int(task_id),
+                seed=int(stream_seed) + 10_007 * int(task_id),
+            )
+            # Keep disk splits as nuisance controls
+            out[task_name]["val_nuisance"] = out[task_name]["val"]
+            out[task_name]["test_nuisance"] = out[task_name]["test"]
+            # Primary eval = packed_id
+            for split_name, key in (("val", "val"), ("test", "test")):
+                out[task_name][key] = make_eval_context_loader(
+                    task,
+                    manifest.residue_splits,
+                    target_split=split_name,  # type: ignore[arg-type]
+                    context_mode="packed_id",
+                    distractor_split="train",
+                    n_per_operation=int(eval_n_per_operation),
+                    seed=int(eval_seed) + 1009 * task_id + (0 if split_name == "val" else 1),
+                )
+            # Fixed train-eval for t_mem (not minibatch)
+            train_eval_ex = build_analysis_dataset(
+                task,
+                manifest.residue_splits,
+                split="train",
+                context_mode="packed_id",
+                analysis_seed=int(eval_seed) + 17 + task_id,
+                aliases_per_pair=2,
+                contexts_per_pair=1,
+            )
+            out[task_name]["train_eval"] = make_loader(
+                ModularAdditionDataset.from_examples(train_eval_ex, task_id=task_id),
+                batch_size=None,
+                shuffle=False,
+            )
+            # t_iid: all ops from train pool, packed_id
+            out[task_name]["iid"] = make_eval_context_loader(
+                task,
+                manifest.residue_splits,
+                target_split="train",
+                context_mode="packed_id",
+                distractor_split="train",
+                n_per_operation=int(eval_n_per_operation),
+                seed=int(eval_seed) + 409 + task_id,
             )
     return out
 
@@ -100,6 +170,7 @@ def run_protocol(
     model_cfg: ModelConfig | None = None,
     train_cfg: TrainConfig | None = None,
     model_seed: int = 0,
+    sampler_seed: int | None = None,
     phase_steps: int | None = None,
     wandb_enabled: bool = True,
     wandb_project: str = "go4cl",
@@ -113,6 +184,8 @@ def run_protocol(
     Run one of the plan's training protocols on a fixed dataset root.
 
     Metrics stream to W&B when ``wandb_enabled`` is true (default).
+    ``sampler_seed`` controls online/minibatch streams; defaults to ``model_seed``
+    only for backward compatibility — prefer setting it explicitly.
     """
     data_root = Path(data_root)
     out_dir = Path(out_dir)
@@ -120,6 +193,7 @@ def run_protocol(
     train_cfg = train_cfg or TrainConfig()
     model_cfg = model_cfg or ModelConfig()
     steps = phase_steps or train_cfg.max_steps
+    resolved_sampler_seed = int(sampler_seed if sampler_seed is not None else model_seed)
 
     seed_everything(model_seed)
     device = torch.device(train_cfg.device)
@@ -129,6 +203,7 @@ def run_protocol(
         batch_size=train_cfg.batch_size,
         train_replacement=bool(train_cfg.train_replacement),
         train_seed=model_seed,
+        sampler_seed=resolved_sampler_seed,
     )
     packed_a = getattr(loaders["A"]["train"], "n_packs", None)
     packed_b = getattr(loaders["B"]["train"], "n_packs", None)
@@ -148,6 +223,7 @@ def run_protocol(
     cfg_payload = {
         "protocol": protocol,
         "model_seed": model_seed,
+        "sampler_seed": resolved_sampler_seed,
         "phase_steps": steps,
         "data_root": str(data_root),
         "out_dir": str(out_dir),
@@ -164,6 +240,11 @@ def run_protocol(
         },
         **(wandb_config or {}),
     }
+    metrics: dict[str, Any] = {
+        "protocol": protocol,
+        "model_seed": model_seed,
+        "sampler_seed": resolved_sampler_seed,
+    }
     wb = init_wandb(
         enabled=wandb_enabled,
         project=wandb_project,
@@ -178,7 +259,6 @@ def run_protocol(
     if wb is not None:
         define_train_metrics()
 
-    metrics: dict[str, Any] = {"protocol": protocol, "model_seed": model_seed}
     final_step = 0
 
     def _eval_both(tag: str) -> dict[str, Any]:
@@ -188,12 +268,18 @@ def run_protocol(
                 r = evaluate(model, loaders[task][split], device)
                 res[f"{task}_{split}_acc"] = r.accuracy
                 res[f"{task}_{split}_loss"] = r.loss
-                # Per-modulus held-out accuracies for W&B / metrics.json
+                res[f"{task}_{split}_macro_op_acc"] = r.macro_operation_accuracy
+                res[f"{task}_{split}_macro_op_loss"] = r.macro_operation_loss
                 res.update(
                     modulus_acc_metrics(
                         r.by_modulus, prefix=f"{task}_{split}_acc"
                     )
                 )
+            for ctrl in ("val_nuisance", "test_nuisance"):
+                if ctrl in loaders[task]:
+                    r = evaluate(model, loaders[task][ctrl], device)
+                    res[f"{task}_{ctrl}_acc"] = r.accuracy
+                    res[f"{task}_{ctrl}_macro_op_acc"] = r.macro_operation_accuracy
         res["tag"] = tag
         return res
 
@@ -250,12 +336,15 @@ def run_protocol(
                 model,
                 loaders["A"]["train"],
                 cfg=cfg,
-                eval_loaders={"A_val": loaders["A"]["val"]},
+                eval_loaders=_eval_bundle(loaders, "A"),
                 ckpt_dir=str(out_dir / "ckpts"),
                 run_name="a_only",
             )
             final_step = state.step
             metrics.update(_eval_both("after_a"))
+            metrics["events"] = dict(state.events)
+            if state.first_stable_ckpt_path:
+                metrics["first_stable_ckpt"] = state.first_stable_ckpt_path
             _attach_best_by_val(state, final_tag="a_only")
 
         elif protocol == "b_only":
@@ -264,12 +353,13 @@ def run_protocol(
                 model,
                 loaders["B"]["train"],
                 cfg=cfg,
-                eval_loaders={"B_val": loaders["B"]["val"]},
+                eval_loaders=_eval_bundle(loaders, "B"),
                 ckpt_dir=str(out_dir / "ckpts"),
                 run_name="b_only",
             )
             final_step = state.step
             metrics.update(_eval_both("after_b"))
+            metrics["events"] = dict(state.events)
             _attach_best_by_val(state, final_tag="b_only")
 
         elif protocol == "joint":
@@ -283,10 +373,7 @@ def run_protocol(
                 model,
                 joint_loader,
                 cfg=cfg,
-                eval_loaders={
-                    "A_val": loaders["A"]["val"],
-                    "B_val": loaders["B"]["val"],
-                },
+                eval_loaders=_eval_bundle(loaders, "A", "B"),
                 ckpt_dir=str(out_dir / "ckpts"),
                 run_name="joint",
             )
@@ -295,78 +382,99 @@ def run_protocol(
             _attach_best_by_val(state, final_tag="joint")
 
         elif protocol in {"sequential_ab", "a_only_continued"}:
+            from go4cl.train.loop import train_segment
+
             cfg_a = TrainConfig(**{**train_cfg.__dict__, "max_steps": steps})
-            state_a = train_steps(
+            seg_a = train_segment(
                 model,
                 loaders["A"]["train"],
                 cfg=cfg_a,
-                eval_loaders={"A_val": loaders["A"]["val"]},
+                optimizer_transition="preserve",
+                eval_loaders=_eval_bundle(loaders, "A"),
                 ckpt_dir=str(out_dir / "ckpts"),
                 run_name="phase_a",
             )
-            save_checkpoint(out_dir / "ckpts" / "theta_A.pt", model, step=state_a.step)
+            state_a = seg_a.state
+            save_checkpoint(
+                out_dir / "ckpts" / "theta_A.pt",
+                model,
+                optimizer=seg_a.optimizer,
+                step=state_a.step,
+                meta={"task_switch": "A_done", "optimizer_transition": "preserve"},
+            )
             metrics["after_a"] = _eval_both("after_a")
+            metrics["events_phase_a"] = dict(state_a.events)
             log_wandb({f"after_a/{k}": v for k, v in metrics["after_a"].items() if isinstance(v, (int, float))}, step=state_a.step)
             max_acc_a = metrics["after_a"]["A_test_acc"]
 
             if protocol == "a_only_continued":
                 cfg_c = TrainConfig(**{**train_cfg.__dict__, "max_steps": steps})
-                state_c = train_steps(
+                seg_c = train_segment(
                     model,
                     loaders["A"]["train"],
                     cfg=cfg_c,
-                    eval_loaders={"A_val": loaders["A"]["val"]},
+                    optimizer=seg_a.optimizer,
+                    start_step=state_a.step,
+                    optimizer_transition="preserve",
+                    eval_loaders=_eval_bundle(loaders, "A"),
                     ckpt_dir=str(out_dir / "ckpts"),
                     run_name="phase_a_continued",
                 )
-                final_step = state_a.step + state_c.step
+                state_c = seg_c.state
+                final_step = state_c.step
                 metrics["after_continued"] = _eval_both("after_continued")
                 _attach_best_by_val(state_c, final_tag="phase_a_continued")
             else:
                 cfg_b = TrainConfig(**{**train_cfg.__dict__, "max_steps": steps})
-                state_b = train_steps(
+                seg_b = train_segment(
                     model,
                     loaders["B"]["train"],
                     cfg=cfg_b,
-                    eval_loaders={
-                        "A_val": loaders["A"]["val"],
-                        "B_val": loaders["B"]["val"],
-                    },
+                    optimizer=seg_a.optimizer,
+                    start_step=state_a.step,
+                    optimizer_transition="preserve",
+                    eval_loaders=_eval_bundle(loaders, "A", "B"),
                     ckpt_dir=str(out_dir / "ckpts"),
                     run_name="phase_b",
                 )
-                final_step = state_a.step + state_b.step
+                state_b = seg_b.state
+                final_step = state_b.step
                 metrics["after_b"] = _eval_both("after_b")
                 metrics["forgetting_A"] = forgetting(
                     max_acc_a, metrics["after_b"]["A_test_acc"]
                 )
+                metrics["optimizer_transition"] = "preserve"
                 _attach_best_by_val(state_b, final_tag="phase_b")
 
         elif protocol == "sequential_ba":
+            from go4cl.train.loop import train_segment
+
             cfg_b = TrainConfig(**{**train_cfg.__dict__, "max_steps": steps})
-            state_b = train_steps(
+            seg_b = train_segment(
                 model,
                 loaders["B"]["train"],
                 cfg=cfg_b,
-                eval_loaders={"B_val": loaders["B"]["val"]},
+                optimizer_transition="preserve",
+                eval_loaders=_eval_bundle(loaders, "B"),
                 ckpt_dir=str(out_dir / "ckpts"),
                 run_name="phase_b",
             )
             cfg_a = TrainConfig(**{**train_cfg.__dict__, "max_steps": steps})
-            state_a = train_steps(
+            seg_a = train_segment(
                 model,
                 loaders["A"]["train"],
                 cfg=cfg_a,
-                eval_loaders={
-                    "A_val": loaders["A"]["val"],
-                    "B_val": loaders["B"]["val"],
-                },
+                optimizer=seg_b.optimizer,
+                start_step=seg_b.state.step,
+                optimizer_transition="preserve",
+                eval_loaders=_eval_bundle(loaders, "A", "B"),
                 ckpt_dir=str(out_dir / "ckpts"),
                 run_name="phase_a",
             )
-            final_step = state_b.step + state_a.step
+            final_step = seg_a.state.step
             metrics.update(_eval_both("after_ba"))
-            _attach_best_by_val(state_a, final_tag="phase_a")
+            metrics["optimizer_transition"] = "preserve"
+            _attach_best_by_val(seg_a.state, final_tag="phase_a")
 
         elif protocol == "interleaved":
             from go4cl.train.loop import build_optimizer, infinite_loader
@@ -419,5 +527,6 @@ def run_protocol(
         finish_wandb()
 
     write_json(out_dir / "metrics.json", metrics)
+    write_json(out_dir / "config_resolved.json", cfg_payload)
     save_checkpoint(out_dir / "ckpts" / "final.pt", model, step=final_step)
     return ProtocolResult(protocol=protocol, metrics=metrics, wandb_url=wandb_url)

@@ -21,7 +21,7 @@ uv run wandb login
 - Sequence: 8 digits + task + query → predict \((x_i+x_j)\bmod p\) (47-way head).
 - Phase 1A: residue-pair split **only on relevant operand positions** (default `train_frac`, or optional `n_train_pairs`) × `n_aliases`; other digits ~\(U\{0..63\}\); train with **batch 2048 + replacement**.
 - Dual-task / general path still uses residue-pair splits with `n_aliases` × `n_nuisance`.
-- Moduli: \(\mathcal P=\{19,23,29,31,37,41,43,47\}\).
+- Moduli: \(\mathcal P=\{23,29,31,37,41,43,47,53\}\)（暂用；原 19 换 53）。
 
 ## Layout
 

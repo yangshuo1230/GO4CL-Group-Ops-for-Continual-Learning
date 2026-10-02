@@ -65,7 +65,7 @@ uv run go4cl phase1 calibrate --help
 
 **内容：**
 
-- 对 \(p\in\{19,23,29,31,37,41,43,47\}\) 各训一个**单有效 query** 模型
+- 对 \(p\in\{23,29,31,37,41,43,47,53\}\) 各训一个**单有效 query** 模型（暂：19→53）
 - 模型、优化器、有关位置暴露量（默认 `train_frac` × `n_aliases`；可选 `n_train_pairs`）全相同
 - 数据构造（仅 1A）：只对有关操作数位置的无序余数对严格划分；无关位 ~\(U\{0,\ldots,63\}\)
 - 训练：`batch_size=2048` + 有放回采样（跨模数每步算力对齐）；eval 全量无放回
@@ -175,14 +175,23 @@ uv run go4cl phase1 multi-op \
 
 **内容：**
 
-- 同模数两操作之间：计算子电路是否共享、attention 路由是否分离
-- 跨操作 circuit transplant / faithfulness
-- 与 1A-mech 结论对照：促进是否来自复用同一套 Fourier/计算特征
+- 按 op（模数）过滤 val/test，复用 1A-mech：composition / attention / Fourier 消融
+- L0 路由分离：对本 op 操作数质量 vs 其他 op 操作数位置
+- **跨模 Fourier 选择性**：消融某一 \(p\) 的 top-1 频率对，测对所有 op 的 \(\Delta\)acc
 
 **要回答的问题：** 多操作促进在机制上是「复制电路」还是「共享计算 + 分路由」？
 
-**产出：** `runs/phase1/mechanisms/`。  
-**状态：** CLI 占位，实现待补。
+**默认目标（MVP）：** concat-1B `four_diff`[47,43,37,23] best  
+`runs/phase1/multi_op/20260930_235556/runs/multi_four_diff_m47-43-37-23_…`
+
+```bash
+bash scripts/phase1/mechanisms.sh
+# 或
+uv run go4cl phase1 mechanisms --ckpt-kind best
+```
+
+**产出：** `runs/phase1/mechanisms/<stamp>/`（`CONCLUSIONS.md` + CSV/JSON）。  
+**状态：** MVP 已跑；`pair_same` 同模对照与电路移植待补。
 
 ---
 

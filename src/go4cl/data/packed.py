@@ -8,8 +8,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from go4cl.constants import NUM_DIGITS, QUERY_TOKEN_IDS, SEQ_LEN_OPERANDS
-from go4cl.data.generate import Example, sample_raw_operands
+from go4cl.data.context import ContextBuilder
 from go4cl.data.residue_pairs import ResiduePairSplit
 from go4cl.tasks.spec import TaskSpec
 
@@ -20,49 +19,11 @@ def sample_packed_examples(
     splits: dict[int, ResiduePairSplit],
     *,
     split_name: str = "train",
-) -> list[Example]:
-    """Draw one residue pair per op (with replacement) and pack into 8 digits.
-
-    Four-op tasks form a perfect matching, so every digit position is written.
-    Single-op tasks fill the unused six positions uniformly from 0..63.
-    Returns one Example per op, sharing the same digit context, each with its
-    own query token and label.
-    """
-    if task.n_ops == 1:
-        digits = [int(rng.integers(0, NUM_DIGITS)) for _ in range(SEQ_LEN_OPERANDS)]
-    else:
-        digits = [0] * SEQ_LEN_OPERANDS
-
-    pairs_used: list[tuple[int, int]] = []
-    for op in task.operations:
-        pool = splits[op.modulus].get(split_name)  # type: ignore[arg-type]
-        if not pool:
-            raise ValueError(
-                f"empty {split_name} residue-pair pool for modulus {op.modulus}"
-            )
-        pair = pool[int(rng.integers(0, len(pool)))]
-        swap = bool(rng.integers(0, 2))
-        raw_i, raw_j = sample_raw_operands(rng, pair, op.modulus, swap=swap)
-        digits[op.i] = raw_i
-        digits[op.j] = raw_j
-        pairs_used.append(pair)
-
-    examples: list[Example] = []
-    for op, pair in zip(task.operations, pairs_used, strict=True):
-        tokens = tuple(digits + [task.task_token, QUERY_TOKEN_IDS[op.slot]])
-        label = (int(digits[op.i]) + int(digits[op.j])) % op.modulus
-        examples.append(
-            Example(
-                tokens=tokens,
-                label=label,
-                task_name=task.name,
-                slot=op.slot,
-                modulus=op.modulus,
-                residue_pair=pair,
-                split=split_name,
-            )
-        )
-    return examples
+):
+    """Draw one residue pair per op and pack into 8 digits (via ContextBuilder)."""
+    builder = ContextBuilder(task, splits)
+    record = builder.sample_packed_digits(rng, default_split=split_name)  # type: ignore[arg-type]
+    return builder.emit_all_queries(record, split=split_name)
 
 
 class PackedMultiOpTrainLoader:
@@ -94,6 +55,7 @@ class PackedMultiOpTrainLoader:
         self.n_packs = self.batch_size // n_ops
         self.seed = int(seed)
         self.split_name = split_name
+        self.builder = ContextBuilder(task, splits)
         self.dataset = _PackedLen(self.n_packs)
 
     def __iter__(self) -> Iterator[dict[str, torch.Tensor]]:
@@ -106,20 +68,21 @@ class PackedMultiOpTrainLoader:
         labels: list[int] = []
         slots: list[int] = []
         moduli: list[int] = []
+        latent_ids: list[int] = []
         for _ in range(self.n_packs):
-            for ex in sample_packed_examples(
-                rng, self.task, self.splits, split_name=self.split_name
-            ):
+            for ex in self.builder.sample_train_pack(rng):
                 tokens.append(list(ex.tokens))
                 labels.append(ex.label)
                 slots.append(ex.slot)
                 moduli.append(ex.modulus)
+                latent_ids.append(ex.latent_id)
         tid = self.task.task_id
         return {
             "tokens": torch.tensor(tokens, dtype=torch.long),
             "labels": torch.tensor(labels, dtype=torch.long),
             "slots": torch.tensor(slots, dtype=torch.long),
             "moduli": torch.tensor(moduli, dtype=torch.long),
+            "latent_ids": torch.tensor(latent_ids, dtype=torch.long),
             "task_ids": torch.full((self.batch_size,), tid, dtype=torch.long),
         }
 

@@ -70,6 +70,7 @@ class TrainJob:
     wandb_tags: tuple[str, ...]
     wandb_config: dict[str, Any]
     batch_size: int = 2048
+    sampler_seed: int | None = None
 
 
 def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
@@ -118,6 +119,11 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
             model_cfg=model_cfg,
             train_cfg=train_cfg,
             model_seed=job.model_seed,
+            sampler_seed=(
+                int(job.sampler_seed)
+                if job.sampler_seed is not None
+                else int(job.model_seed)
+            ),
             phase_steps=job.steps,
             wandb_enabled=True,
             wandb_project=job.wandb_project,
@@ -132,6 +138,11 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
                 "full_batch": False,
                 "wandb_group": job.wandb_group,
                 "gpu": job.gpu,
+                "sampler_seed": (
+                    int(job.sampler_seed)
+                    if job.sampler_seed is not None
+                    else int(job.model_seed)
+                ),
             },
         )
         result["status"] = "ok"
@@ -203,6 +214,8 @@ def write_report(
     csv_fields: list[str],
     csv_row_fn: Callable[[dict[str, Any]], list[Any]],
 ) -> tuple[Path, Path]:
+    import csv
+
     ok = [r for r in results if r.get("status") == "ok"]
     err = [r for r in results if r.get("status") != "ok"]
     summary = {
@@ -231,11 +244,13 @@ def write_report(
         encoding="utf-8",
     )
 
-    lines = [",".join(csv_fields)]
-    for r in results:
-        lines.append(",".join(str(x) for x in csv_row_fn(r)))
     csv_path = out_root / f"{phase}_{step}_summary.csv"
-    csv_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=csv_fields, extrasaction="ignore")
+        writer.writeheader()
+        for r in results:
+            row_vals = csv_row_fn(r)
+            writer.writerow(dict(zip(csv_fields, row_vals, strict=False)))
 
     print(f"\n======== {phase.upper()} / {step} SUMMARY ========")
     print(json.dumps(summary, indent=2, sort_keys=True))

@@ -7,8 +7,9 @@ NUM_DIGITS = 64  # tokens 0..63
 SEQ_LEN_OPERANDS = 8
 CONTEXT_LENGTH = 10  # 8 operands + TASK + QUERY
 
-# Output vocabulary: classes 0..46 inclusive (covers max modulus 47)
-NUM_OUTPUT_CLASSES = 47
+# Output vocabulary: classes 0..52 inclusive (covers max modulus 53).
+# Temporary: 19 → 53 in PRIMES (2026-10-02); restore 19 / 47-class head when reverting.
+NUM_OUTPUT_CLASSES = 53
 MAX_OUTPUT = NUM_OUTPUT_CLASSES - 1
 
 # Task and query special tokens (appended after digit tokens 0..63)
@@ -29,13 +30,14 @@ QUERY_TOKEN_IDS = (TOKEN_Q0, TOKEN_Q1, TOKEN_Q2, TOKEN_Q3)
 
 VOCAB_SIZE = NUM_DIGITS + NUM_TASKS + NUM_QUERIES  # 70
 
-# Primary modulus set (pairwise coprime primes, no multiples)
-PRIMES: tuple[int, ...] = (19, 23, 29, 31, 37, 41, 43, 47)
+# Primary modulus set (pairwise coprime primes, no multiples).
+# Temporary swap: 19 → 53 (small-p multi-op interference); pairs re-covered.
+PRIMES: tuple[int, ...] = (23, 29, 31, 37, 41, 43, 47, 53)
 MODULUS_PAIRS: tuple[tuple[int, int], ...] = (
-    (19, 23),
-    (29, 31),
-    (37, 41),
-    (43, 47),
+    (23, 29),
+    (31, 37),
+    (41, 43),
+    (47, 53),
 )
 
 # Default residue-pair split ratios (approx.); small moduli prioritize coverage

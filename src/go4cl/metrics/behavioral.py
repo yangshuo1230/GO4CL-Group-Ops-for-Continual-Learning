@@ -19,15 +19,43 @@ class EvalResult:
     n: int
     by_slot: dict[int, dict[str, float]] = field(default_factory=dict)
     by_modulus: dict[int, dict[str, float]] = field(default_factory=dict)
+    by_operation: dict[str, dict[str, float]] = field(default_factory=dict)
+    macro_operation_accuracy: float = 0.0
+    macro_operation_loss: float = 0.0
+    mean_correct_logit_margin: float = 0.0
+    normalized_cross_entropy: float = 0.0
+
+    # Back-compat aliases used by older callers
+    @property
+    def micro_accuracy(self) -> float:
+        return self.accuracy
+
+    @property
+    def micro_loss(self) -> float:
+        return self.loss
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "loss": self.loss,
             "accuracy": self.accuracy,
+            "micro_loss": self.loss,
+            "micro_accuracy": self.accuracy,
             "n": self.n,
+            "n_examples": self.n,
             "by_slot": {str(k): v for k, v in self.by_slot.items()},
             "by_modulus": {str(k): v for k, v in self.by_modulus.items()},
+            "by_operation": dict(self.by_operation),
+            "macro_operation_accuracy": self.macro_operation_accuracy,
+            "macro_operation_loss": self.macro_operation_loss,
+            "mean_correct_logit_margin": self.mean_correct_logit_margin,
+            "normalized_cross_entropy": self.normalized_cross_entropy,
         }
+
+
+def _op_key(task_id: int, latent_id: int, slot: int) -> str:
+    if latent_id >= 0:
+        return f"task{task_id}/lat{latent_id}/slot{slot}"
+    return f"task{task_id}/slot{slot}"
 
 
 @torch.no_grad()
@@ -40,41 +68,81 @@ def evaluate(
     total_loss = 0.0
     total_correct = 0
     total_n = 0
+    margin_sum = 0.0
+    nce_sum = 0.0
     slot_stats: dict[int, list[float]] = {}
     mod_stats: dict[int, list[float]] = {}
+    op_correct: dict[str, list[float]] = {}
+    op_loss: dict[str, list[float]] = {}
 
     for batch in loader:
         tokens = batch["tokens"].to(device)
         labels = batch["labels"].to(device)
         slots = batch["slots"]
         moduli = batch["moduli"]
+        task_ids = batch.get("task_ids")
+        latent_ids = batch.get("latent_ids")
         out = model(tokens, labels)
         logits = out["logits"]
         loss = out["loss"]
         preds = logits.argmax(dim=-1)
         correct = preds == labels
         bs = labels.shape[0]
+        # per-example CE for macro loss
+        ce = F.cross_entropy(logits, labels, reduction="none")
         total_loss += float(loss.item()) * bs
         total_correct += int(correct.sum().item())
         total_n += bs
+        margin_sum += mean_margin(logits, labels) * bs
+        if moduli is not None:
+            nce_sum += normalized_ce(logits, labels, moduli.to(device)) * bs
+
         for i in range(bs):
             s = int(slots[i].item())
             m = int(moduli[i].item())
-            slot_stats.setdefault(s, []).append(float(correct[i].item()))
-            mod_stats.setdefault(m, []).append(float(correct[i].item()))
+            tid = int(task_ids[i].item()) if task_ids is not None else 0
+            lid = int(latent_ids[i].item()) if latent_ids is not None else -1
+            ok = float(correct[i].item())
+            slot_stats.setdefault(s, []).append(ok)
+            mod_stats.setdefault(m, []).append(ok)
+            key = _op_key(tid, lid, s)
+            op_correct.setdefault(key, []).append(ok)
+            op_loss.setdefault(key, []).append(float(ce[i].item()))
 
-    def _agg(stats: dict[int, list[float]]) -> dict[int, dict[str, float]]:
+    def _agg_acc(stats: dict[int, list[float]]) -> dict[int, dict[str, float]]:
         return {
             k: {"accuracy": sum(v) / max(len(v), 1), "n": float(len(v))}
             for k, v in sorted(stats.items())
         }
 
+    by_operation: dict[str, dict[str, float]] = {}
+    for key in sorted(op_correct.keys()):
+        accs = op_correct[key]
+        losses = op_loss[key]
+        by_operation[key] = {
+            "accuracy": sum(accs) / max(len(accs), 1),
+            "loss": sum(losses) / max(len(losses), 1),
+            "n": float(len(accs)),
+        }
+
+    if by_operation:
+        macro_acc = sum(v["accuracy"] for v in by_operation.values()) / len(by_operation)
+        macro_loss = sum(v["loss"] for v in by_operation.values()) / len(by_operation)
+    else:
+        macro_acc = total_correct / max(total_n, 1)
+        macro_loss = total_loss / max(total_n, 1)
+
     return EvalResult(
         loss=total_loss / max(total_n, 1),
         accuracy=total_correct / max(total_n, 1),
         n=total_n,
-        by_slot=_agg(slot_stats),
-        by_modulus=_agg(mod_stats),
+        by_slot=_agg_acc(slot_stats),
+        by_modulus=_agg_acc(mod_stats),
+        by_operation=by_operation,
+        macro_operation_accuracy=macro_acc,
+        macro_operation_loss=macro_loss,
+        mean_correct_logit_margin=margin_sum / max(total_n, 1),
+        normalized_cross_entropy=nce_sum / max(total_n, 1),
     )
 
 

@@ -40,6 +40,8 @@ class Example:
     modulus: int
     residue_pair: tuple[int, int]
     split: str
+    latent_id: int = -1
+    task_id: int = -1
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +52,8 @@ class Example:
             "modulus": self.modulus,
             "residue_pair": list(self.residue_pair),
             "split": self.split,
+            "latent_id": self.latent_id,
+            "task_id": self.task_id,
         }
 
     @classmethod
@@ -62,6 +66,8 @@ class Example:
             modulus=int(d["modulus"]),
             residue_pair=(int(d["residue_pair"][0]), int(d["residue_pair"][1])),
             split=str(d["split"]),
+            latent_id=int(d.get("latent_id", -1)),
+            task_id=int(d.get("task_id", -1)),
         )
 
 
@@ -127,6 +133,8 @@ def generate_examples_for_op(
                         modulus=op.modulus,
                         residue_pair=pair,
                         split=split_name,
+                        latent_id=op.latent_id,
+                        task_id=task.task_id,
                     )
                 )
     return examples
@@ -223,6 +231,16 @@ def generate_task_datasets(
         "skip_train": skip_train,
     }
     train_mode = "packed_online" if skip_train else "fixed"
+    if train_mode == "packed_online":
+        schema_version = 2
+        protocol_version = 2
+        train_context_mode = "packed"
+        eval_context_modes = ("packed_id", "nuisance_random")
+    else:
+        schema_version = 1
+        protocol_version = 1
+        train_context_mode = "nuisance_random"
+        eval_context_modes = ("nuisance_random",)
     manifest = DataManifest(
         experiment_id=experiment_id,
         data_seed=data_seed,
@@ -234,6 +252,10 @@ def generate_task_datasets(
         generation_rule=GENERATION_RULE,
         dataset_hash=hash_payload(hash_body),
         train_mode=train_mode,
+        schema_version=schema_version,
+        protocol_version=protocol_version,
+        train_context_mode=train_context_mode,
+        eval_context_modes=eval_context_modes,
     )
     return manifest, datasets
 
@@ -256,17 +278,22 @@ def save_datasets(
                 labels = np.asarray([e["label"] for e in payload], dtype=np.int64)
                 slots = np.asarray([e["slot"] for e in payload], dtype=np.int64)
                 moduli = np.asarray([e["modulus"] for e in payload], dtype=np.int64)
+                latent_ids = np.asarray(
+                    [e.get("latent_id", -1) for e in payload], dtype=np.int64
+                )
             else:
                 tokens = np.zeros((0, CONTEXT_LENGTH), dtype=np.int64)
                 labels = np.zeros((0,), dtype=np.int64)
                 slots = np.zeros((0,), dtype=np.int64)
                 moduli = np.zeros((0,), dtype=np.int64)
+                latent_ids = np.zeros((0,), dtype=np.int64)
             np.savez_compressed(
                 path,
                 tokens=tokens,
                 labels=labels,
                 slots=slots,
                 moduli=moduli,
+                latent_ids=latent_ids,
                 meta=np.asarray(payload, dtype=object),
             )
     return root
@@ -275,9 +302,20 @@ def save_datasets(
 def load_split_arrays(root: Path | str, task_name: str, split: SplitName) -> dict[str, np.ndarray]:
     path = Path(root) / task_name / f"{split}.npz"
     data = np.load(path, allow_pickle=True)
-    return {
+    out: dict[str, np.ndarray] = {
         "tokens": data["tokens"],
         "labels": data["labels"],
         "slots": data["slots"],
         "moduli": data["moduli"],
     }
+    if "latent_ids" in data.files:
+        out["latent_ids"] = data["latent_ids"]
+    elif "meta" in data.files and len(data["meta"]):
+        meta = data["meta"]
+        out["latent_ids"] = np.asarray(
+            [int(m.get("latent_id", -1)) if isinstance(m, dict) else -1 for m in meta],
+            dtype=np.int64,
+        )
+    else:
+        out["latent_ids"] = np.full(len(out["labels"]), -1, dtype=np.int64)
+    return out

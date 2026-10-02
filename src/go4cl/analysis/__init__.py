@@ -3,6 +3,8 @@
 from go4cl.analysis.attention import query_attention_to_operands
 from go4cl.analysis.cache import collect_batches, operand_residues
 from go4cl.analysis.causal import (
+    estimate_class_means,
+    evaluate_steering,
     fourier_ablation_on_embeddings,
     steer_at_layer,
     steer_query_resid_sum,
@@ -37,6 +39,8 @@ __all__ = [
     "run_layer_probes_with_random_control",
     "query_attention_to_operands",
     "fourier_ablation_on_embeddings",
+    "estimate_class_means",
+    "evaluate_steering",
     "steer_query_resid_sum",
     "steer_at_layer",
     "probe_info_ladder",
