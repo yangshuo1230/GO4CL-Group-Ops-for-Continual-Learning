@@ -14,7 +14,7 @@ from tqdm import tqdm
 from go4cl.metrics.behavioral import EvalResult, evaluate
 from go4cl.model.transformer import ModularTransformer
 from go4cl.utils.checkpoint import save_checkpoint
-from go4cl.utils.wandb_log import log_wandb
+from go4cl.utils.wandb_log import line_series_by_modulus, log_wandb, modulus_acc_metrics
 
 
 @dataclass
@@ -75,6 +75,8 @@ def train_steps(
     state = TrainState()
     batches = infinite_loader(train_loader)
     pbar = tqdm(range(1, cfg.max_steps + 1), desc=run_name, leave=False)
+    # step history of val acc per modulus → multi-line W&B chart
+    val_mod_hist: dict[int, list[tuple[int, float]]] = {}
 
     for step in pbar:
         model.train()
@@ -112,8 +114,16 @@ def train_steps(
                 result: EvalResult = evaluate(model, loader, device)
                 record[f"{name}_loss"] = result.loss
                 record[f"{name}_acc"] = result.accuracy
+                # Per-modulus accuracies (e.g. A_val_acc/p19) → separate W&B panels
+                record.update(
+                    modulus_acc_metrics(result.by_modulus, prefix=f"{name}_acc")
+                )
                 if name.endswith("val") or name == "val":
                     val_accs[name] = result.accuracy
+                    for m, stats in result.by_modulus.items():
+                        val_mod_hist.setdefault(int(m), []).append(
+                            (step, float(stats["accuracy"]))
+                        )
             if val_accs:
                 score = sum(val_accs.values()) / len(val_accs)
                 if score > state.best_val_acc:
@@ -139,6 +149,12 @@ def train_steps(
                 else:
                     record["best_val_acc"] = state.best_val_acc
                     record["best_step"] = state.best_step
+            chart = line_series_by_modulus(
+                val_mod_hist,
+                title="Val accuracy by modulus",
+            )
+            if chart is not None:
+                record["charts/val_acc_by_modulus"] = chart
 
         if record is not None:
             log_wandb(record, step=step)

@@ -19,7 +19,13 @@ from go4cl.model.transformer import ModelConfig, ModularTransformer
 from go4cl.train.loop import TrainConfig, TrainState, train_steps
 from go4cl.utils.checkpoint import load_checkpoint, save_checkpoint, write_json
 from go4cl.utils.seed import seed_everything
-from go4cl.utils.wandb_log import define_train_metrics, finish_wandb, init_wandb, log_wandb
+from go4cl.utils.wandb_log import (
+    define_train_metrics,
+    finish_wandb,
+    init_wandb,
+    log_wandb,
+    modulus_acc_metrics,
+)
 
 ProtocolName = Literal[
     "a_only",
@@ -146,12 +152,18 @@ def run_protocol(
     final_step = 0
 
     def _eval_both(tag: str) -> dict[str, Any]:
-        res = {}
+        res: dict[str, Any] = {}
         for task in ("A", "B"):
             for split in ("val", "test"):
                 r = evaluate(model, loaders[task][split], device)
                 res[f"{task}_{split}_acc"] = r.accuracy
                 res[f"{task}_{split}_loss"] = r.loss
+                # Per-modulus held-out accuracies for W&B / metrics.json
+                res.update(
+                    modulus_acc_metrics(
+                        r.by_modulus, prefix=f"{task}_{split}_acc"
+                    )
+                )
         res["tag"] = tag
         return res
 
@@ -180,17 +192,24 @@ def run_protocol(
         metrics["best_B_val_acc"] = best["B_val_acc"]
         metrics["best_B_test_acc"] = best["B_test_acc"]
         metrics["best_ckpt"] = str(best_path)
-        log_wandb(
-            {
-                "best/A_val_acc": best["A_val_acc"],
-                "best/A_test_acc": best["A_test_acc"],
-                "best/B_val_acc": best["B_val_acc"],
-                "best/B_test_acc": best["B_test_acc"],
-                "best/step": state.best_step,
-                "best/val_score": state.best_val_acc,
-            },
-            step=state.step,
-        )
+        best_log: dict[str, Any] = {
+            "best/A_val_acc": best["A_val_acc"],
+            "best/A_test_acc": best["A_test_acc"],
+            "best/B_val_acc": best["B_val_acc"],
+            "best/B_test_acc": best["B_test_acc"],
+            "best/step": state.best_step,
+            "best/val_score": state.best_val_acc,
+        }
+        for k, v in best.items():
+            if isinstance(v, (int, float)) and (
+                k.startswith("A_val_acc/")
+                or k.startswith("A_test_acc/")
+                or k.startswith("B_val_acc/")
+                or k.startswith("B_test_acc/")
+            ):
+                best_log[f"best/{k}"] = v
+                metrics[f"best_{k.replace('/', '_')}"] = v
+        log_wandb(best_log, step=state.step)
         if final_path.is_file():
             load_checkpoint(final_path, model=model, map_location=device)
 

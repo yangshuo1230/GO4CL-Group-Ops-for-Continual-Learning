@@ -47,7 +47,53 @@ def define_train_metrics() -> None:
     wandb.define_metric("train_*")
     wandb.define_metric("A_val_*")
     wandb.define_metric("B_val_*")
+    wandb.define_metric("A_val_acc/*")
+    wandb.define_metric("A_test_acc/*")
+    wandb.define_metric("B_val_acc/*")
+    wandb.define_metric("B_test_acc/*")
+    wandb.define_metric("best/*")
     wandb.define_metric("final/*")
+    wandb.define_metric("charts/*")
+
+
+def modulus_acc_metrics(
+    by_modulus: dict[int, dict[str, float]],
+    *,
+    prefix: str,
+) -> dict[str, float]:
+    """Flatten EvalResult.by_modulus into ``{prefix}/p{m}`` scalars for W&B."""
+    return {
+        f"{prefix}/p{int(m)}": float(stats["accuracy"])
+        for m, stats in sorted(by_modulus.items())
+    }
+
+
+def line_series_by_modulus(
+    history: dict[int, list[tuple[int, float]]],
+    *,
+    title: str,
+    xname: str = "step",
+) -> Any | None:
+    """Multi-line W&B chart: one series per modulus."""
+    if not history:
+        return None
+    import wandb
+
+    keys = sorted(history)
+    xs = [[t for t, _ in history[m]] for m in keys]
+    ys = [[a for _, a in history[m]] for m in keys]
+    return wandb.plot.line_series(
+        xs=xs,
+        ys=ys,
+        keys=[f"p{m}" for m in keys],
+        title=title,
+        xname=xname,
+    )
+
+
+def _is_wandb_media(value: Any) -> bool:
+    mod = type(value).__module__
+    return isinstance(mod, str) and mod.startswith("wandb")
 
 
 def log_wandb(metrics: dict[str, Any], *, step: int | None = None) -> None:
@@ -57,17 +103,23 @@ def log_wandb(metrics: dict[str, Any], *, step: int | None = None) -> None:
         return
     if step is None and "step" in metrics and isinstance(metrics["step"], (int, float)):
         step = int(metrics["step"])
-    payload = {
+    scalars = {
         k: v
         for k, v in metrics.items()
         if k != "step" and isinstance(v, (int, float))
     }
+    media = {
+        k: v
+        for k, v in metrics.items()
+        if k != "step" and k not in scalars and _is_wandb_media(v)
+    }
+    payload = {**scalars, **media}
     if not payload:
         return
     wandb.log(payload, step=step)
-    # Keep latest values visible as run-table columns.
+    # Keep latest scalar values visible as run-table columns.
     if wandb.run is not None:
-        for k, v in payload.items():
+        for k, v in scalars.items():
             wandb.run.summary[k] = v
 
 

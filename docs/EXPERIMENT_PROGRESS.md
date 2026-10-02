@@ -5,7 +5,7 @@
 
 **状态约定：** `未开始` · `进行中` · `已完成` · `阻塞` · `跳过`
 
-最后更新：2026-09-30
+最后更新：2026-10-02
 
 ---
 
@@ -35,7 +35,7 @@
 | 1A-0 | Grokking regime 校准（中等模数） | `go4cl phase1 calibrate` | `runs/phase1/calibrate/` | 已完成 | 锁定试跑：`train_frac=0.8` / `wd=0.3` / `steps` 见 1A；`bs=2048` 有放回 | 2026-09-30 |
 | 1A | 单操作 × 八模数扫描 | `go4cl phase1 scan-moduli` | `runs/phase1/scan_moduli/` | 已完成 | 比例版试跑完成；大模数可学到高 held-out；**暂不挡 1B** | 2026-09-30 |
 | 1A-mech | **单模数机理分析**（Fourier / 探针 / patching） | `go4cl phase1 mech-single` | `runs/phase1/mech_single/` | 跳过 | 按计划先做 1B 行为实验，机理稍后补 | 2026-09-30 |
-| 1B | 多操作单任务 / 同模数促进 | `go4cl phase1 multi-op` | `runs/phase1/multi_op/` | 进行中 | 变体 `one` / `four_diff` / `pair_same`（可选 `all_same`）；超参对齐 1A | 2026-09-30 |
+| 1B | 多操作单任务 / 同模数促进 | `go4cl phase1 multi-op` | `runs/phase1/multi_op/` | 进行中 | 锁定：`train_frac=0.8` / `wd=0.5` / `bs=8192` / `steps=100k` / `aliases=16`；变体 `one`/`four_diff`/`pair_same` | 2026-10-02 |
 | 1C | 多操作对照机理（共享计算 / 移植） | `go4cl phase1 mechanisms` | `runs/phase1/mechanisms/` | 未开始 | CLI 占位；依赖 1B | |
 
 
@@ -94,3 +94,5 @@
 | 2026-09-30 | **比例版 scan-moduli 试跑** `20260930_213357`：`train_frac=0.8` / `wd=0.3` / `steps=20k` / `n_aliases=16` / `bs=2048`。\(p\ge 29\) final A_test=1.0；\(p=23\)≈0.96；\(p=19\)≈0.63。当时评估仅为 **final** 权重 |
 | 2026-09-30 | **Best-by-val checkpoint**：训练中按 val 准确率（多 val 取均值）存 `*_best.pt` + 别名 `best.pt`；协议结束后同时报告 final（`A_*_acc`）与 best（`best_A_*_acc` / `best_step`）；calibrate / scan-moduli CSV 增加 best 列。旧 run 无 best，需重训 |
 | 2026-09-30 | **跳过 1A-mech，进入 1B**：实现 `phase1 multi-op`（`one` / `four_diff` / `pair_same` / 可选 `all_same`）；同 seed 共享 matching+slots，只改模数分配；训练超参对齐 1A |
+| 2026-10-02 | **W&B 按模数准确率**：训练 eval 记录 `A_val_acc/p{m}` 等标量，并上传合并曲线 `charts/val_acc_by_modulus`；final/best 同样写入各模数 test/val 准确率（重跑 1B 后可见） |
+| 2026-10-02 | **1B 锁定训练超参**：`train_frac=0.8`，`weight_decay=0.5`，`batch_size=8192`（有放回），`steps=100000`，`n_aliases=16`；已写入 CLI 默认值与脚本注释 |

@@ -121,7 +121,7 @@ uv run go4cl phase1 mech-single \
 
 ### 1B · `phase1 multi-op` — 多操作单任务与同模数促进
 
-**依赖：** 1A 锁定配置可用（当前：`train_frac=0.8`、`wd=0.3`、`steps=100k`、`aliases=16`、`bs=2048` 有放回）。1A-mech 可后补。
+**依赖：** 1A 配置可用。1B 锁定训练：`train_frac=0.8`、`wd=0.5`、`steps=100k`、`aliases=16`、`bs=8192` 有放回。1A-mech 可后补。
 
 **内容（对照设计，同一 `task_seed` 共享 operand matching + slots）：**
 
@@ -136,7 +136,7 @@ uv run go4cl phase1 mech-single \
 
 **要回答的问题：** 第二个同模数操作是否缩短 \(t_{\mathrm{gen}}\) / 提高 held-out？相对近邻异模数对照，促进是否存在？
 
-**产出：** `runs/phase1/multi_op/<stamp>/`。  
+**产出：** `runs/phase1/multi_op/<stamp>/`；W&B 除总体 `A_val_acc` 外，还记录各模数 `A_val_acc/p{m}` 曲线，以及合并图 `charts/val_acc_by_modulus`。  
 **状态：** 已实现训练入口。
 
 **入口：**
@@ -147,7 +147,7 @@ bash scripts/phase1/multi_op.sh --gpus 0,1,2,3,4,5 --workers-per-gpu 1
 uv run go4cl phase1 multi-op \
   --variants one four_diff pair_same \
   --task-seeds 0 1 \
-  --train-frac 0.8 --weight-decay 0.3 --steps 100000 \
+  --train-frac 0.8 --weight-decay 0.5 --batch-size 8192 --steps 100000 \
   --gpus 0,1,2,3,4,5
 ```
 
@@ -286,7 +286,7 @@ uv run go4cl phase1 multi-op \
 | 1A-0 | `go4cl phase1 calibrate` | `src/go4cl/phases/phase1/calibrate.py` |
 | 1A | `go4cl phase1 scan-moduli` | `src/go4cl/phases/phase1/modulus_scan.py` |
 | 1A-mech | `go4cl phase1 mech-single` | `src/go4cl/phases/phase1/mech_single.py`（stub） |
-| 1B | `go4cl phase1 multi-op` | `src/go4cl/phases/phase1/multi_op.py`（stub） |
+| 1B | `go4cl phase1 multi-op` | `src/go4cl/phases/phase1/multi_op.py` |
 | 1C | `go4cl phase1 mechanisms` | `src/go4cl/phases/phase1/mechanisms.py`（stub） |
 | 2A | `go4cl phase2 protocols` | `src/go4cl/phases/phase2/`（stub） |
 | 2B | `go4cl phase2 relation-matrix` | 同上 |

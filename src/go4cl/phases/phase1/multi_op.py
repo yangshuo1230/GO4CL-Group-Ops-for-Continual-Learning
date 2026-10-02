@@ -7,8 +7,8 @@ Compares (default):
 3. ``pair_same`` — four ops; first two share p; p2, p3 unchanged
 4. optional ``all_same`` — four ops all use p
 
-Locked training defaults follow Phase 1A:
-  train_frac=0.8, weight_decay=0.3, steps=100000, n_aliases=16, batch_size=2048
+Locked training defaults (1B):
+  train_frac=0.8, weight_decay=0.5, steps=100000, n_aliases=16, batch_size=8192
   with replacement.
 """
 
@@ -26,12 +26,13 @@ from go4cl.phases.common import (
     stamp,
     write_report,
 )
-from go4cl.phases.phase1.data import DEFAULT_BATCH_SIZE, prepare_multi_op_dataset
+from go4cl.phases.phase1.data import prepare_multi_op_dataset
 from go4cl.tasks.multi_op import VARIANTS, choose_base_moduli, describe_variant
 
 DEFAULT_TRAIN_FRAC = 0.8
-DEFAULT_WEIGHT_DECAY = 0.3
+DEFAULT_WEIGHT_DECAY = 0.5
 DEFAULT_STEPS = 100_000
+DEFAULT_BATCH_SIZE = 8192
 DEFAULT_VARIANTS: tuple[str, ...] = ("one", "four_diff", "pair_same")
 
 
