@@ -91,30 +91,46 @@ bash scripts/phase1/scan_moduli.sh \
 
 ### 1A-mech · `phase1 mech-single` — 单模数机理分析
 
-**依赖：** 1A（`scan-moduli`）完成，并有可用 checkpoint（记忆点 / 泛化跃迁 / best-by-val / 最终）。
+**依赖：** 1A（`scan-moduli`）完成，并有可用 checkpoint（best-by-val / 最终；可选 step ckpt）。
 
-**何时做：** 原计划紧接 1A 之后；**当前进度：暂时跳过**，先跑 1B 行为实验，机理分析后补。
+**何时做：** 可与 1B 并行；当前已实现 MVP，建议先跑 \(p=31\)。
 
-**内容（聚焦单操作 / 单模数）：**
+**内容（MVP，聚焦单操作 / 单模数）：**
 
-- 对代表性模数（建议先 \(p=31\)，再扩到 1A 中学得最好/最差的模数）做：
-  - 模 \(p\) Fourier：token embedding、query residual、unembedding
-  - 探针：能否解码 \(x_i\bmod p\)、两操作数、部分和、最终结果
-  - Attention：query 是否稳定选中正确的两个输入位置
-  - 因果：Fourier 子空间消融、head/MLP ablation、正确/错误操作数位置 patching
-- **不做**跨操作电路移植（那属于 1C）
+- 默认输入：`runs/phase1/scan_moduli/20260930_223737`，模数 \(p=31\)，`final` + `best`
+- 模 \(p\) Fourier：digit token embedding、query residual（按 \((x_i+x_j)\bmod p\) 平均）
+- 线性探针 / 转向：默认在 **layer 0、1** 的 `resid_post` query 位（不是最终 pre-head）；含随机初始化探针对照，以及中间层转向后继续前向
+- Attention：query 位对各层的质量是否落在正确操作数位置 \(\{i,j\}\)
+- 因果：digit embedding 上 Fourier 频率消融（默认扫掉 \(k=1..n\) 个能量最高 / 最低的共轭频率对，对比 acc 曲线；`--ablation-ks` 可指定子集）；中间层类均值转向 \(h+\alpha(\mu_{s+\delta}-\mu_s)\) 后跑完剩余层（含 shuffled-mean 对照）
+- **组合位点（composition locus）**：全层 `resid_mid` / `resid_post` 信息阶梯探针（\(x_i,x_j,\mathrm{sum}\)）；逐层 zero-attn / zero-MLP 写回消融；**逐 head 消融**；top Fourier 频率上 operand vs sum 谐波 \(R^2\)。默认开启；`--skip-composition` 可关
+- **不做**跨操作电路移植 / 完整 head·MLP 扫描（属 1C 或后续）
 
-**要回答的问题：** 单模数下模型是否形成可干预的「模加法算法」？不同模数是否共用同类机制？
+**要回答的问题：** 单模数下模型是否形成可干预的「模加法算法」？组合发生在哪一层 / 哪个组件？不同模数是否共用同类机制？
 
-**产出：** `runs/phase1/mech_single/`；单模数机理报告（与 1A 行为曲线对照）。  
-**状态：** CLI 占位；进度表标记为 **跳过（可后补）**。
+**产出：** `runs/phase1/mech_single/<stamp>/`
+
+- `p{m}_{final|best}_report.json`
+- `phase1_mech-single_report.json` / `phase1_mech-single_summary.csv`  
+  （列含：`probe_sum_acc` / `probe_sum_acc_random` / `steered_acc_target` / `shuffled_steered_acc_target` / `ablation_delta_acc` / `compose_layer_guess` 等）
+- `phase1_mech-single_ablation_curve.csv` — 重要 vs 不重要频率对数量 \(k\) 的 test acc / \(\Delta\)acc
+- `phase1_mech-single_composition.csv` — ladder / knockout / **head_knockout** / harmonic 长表
+- 规范汇总（结论+图）：`runs/phase1/mech_single/p31_summary/`；stamp 索引见同目录上级 `README.md`
+
+**状态：** p=31 MVP 已跑通并整理；多模数 / 轨迹 progress 待补。
 
 **入口：**
 
 ```bash
-uv run go4cl phase1 mech-single \
-  --ckpt-root runs/phase1/scan_moduli/<stamp> \
-  --moduli 31
+bash scripts/phase1/mech_single.sh \
+  --ckpt-root runs/phase1/scan_moduli/20260930_223737 \
+  --moduli 31 \
+  --ckpt-kinds final best
+# 或指定消融扫的 k（默认全扫）
+uv run go4cl phase1 mech-single --moduli 31 --ablation-ks 1 2 4 8
+# 跳过组合位点
+uv run go4cl phase1 mech-single --moduli 31 --skip-composition
+# 重画汇总图
+bash scripts/phase1/plot_mech_figures.sh
 ```
 
 ---
@@ -285,7 +301,7 @@ uv run go4cl phase1 multi-op \
 | E0 | `go4cl smoke` | `src/go4cl/scripts/smoke.py` |
 | 1A-0 | `go4cl phase1 calibrate` | `src/go4cl/phases/phase1/calibrate.py` |
 | 1A | `go4cl phase1 scan-moduli` | `src/go4cl/phases/phase1/modulus_scan.py` |
-| 1A-mech | `go4cl phase1 mech-single` | `src/go4cl/phases/phase1/mech_single.py`（stub） |
+| 1A-mech | `go4cl phase1 mech-single` | `src/go4cl/phases/phase1/mech_single.py` |
 | 1B | `go4cl phase1 multi-op` | `src/go4cl/phases/phase1/multi_op.py` |
 | 1C | `go4cl phase1 mechanisms` | `src/go4cl/phases/phase1/mechanisms.py`（stub） |
 | 2A | `go4cl phase2 protocols` | `src/go4cl/phases/phase2/`（stub） |
