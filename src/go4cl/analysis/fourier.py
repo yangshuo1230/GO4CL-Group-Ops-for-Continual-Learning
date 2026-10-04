@@ -88,3 +88,54 @@ def analyze_query_resid_fourier(
     result = fourier_energy(means)
     result["source"] = source
     return result
+
+
+def analyze_unembedding_fourier(
+    head: nn.Linear,
+    *,
+    modulus: int,
+) -> dict[str, Any]:
+    """Fourier on output-head rows indexed by class residue ``0..p-1``.
+
+    The shared head has ``C ≥ p`` classes. Valid labels for modulus ``p`` are
+    exactly those rows, so this is the unembedding analogue of residue-averaged
+    digit embeddings (no alias averaging).
+    """
+    if modulus < 2:
+        raise ValueError(f"modulus must be >= 2, got {modulus}")
+    weight = head.weight.detach().cpu()
+    if weight.shape[0] < modulus:
+        raise ValueError(
+            f"unembed has {weight.shape[0]} classes < modulus {modulus}"
+        )
+    # [p, D] — class id is already the residue
+    result = fourier_energy(weight[:modulus])
+    result["source"] = "unembed_head_rows"
+    result["n_classes"] = int(weight.shape[0])
+    if head.bias is not None:
+        bias = head.bias.detach().cpu()[:modulus]
+        result["bias_fourier"] = fourier_energy(bias.unsqueeze(-1))
+        result["bias_fourier"]["source"] = "unembed_bias"
+    return result
+
+
+def energy_cosine(
+    energy_a: list[float] | torch.Tensor,
+    energy_b: list[float] | torch.Tensor,
+    *,
+    skip_dc: bool = True,
+) -> float:
+    """Cosine similarity of two length-p energy spectra."""
+    a = np.asarray(energy_a, dtype=np.float64).reshape(-1)
+    b = np.asarray(energy_b, dtype=np.float64).reshape(-1)
+    n = min(a.size, b.size)
+    a = a[:n].copy()
+    b = b[:n].copy()
+    if skip_dc and n:
+        a[0] = 0.0
+        b[0] = 0.0
+    na = float(np.linalg.norm(a))
+    nb = float(np.linalg.norm(b))
+    if na < 1e-12 or nb < 1e-12:
+        return 0.0
+    return float(np.dot(a, b) / (na * nb))

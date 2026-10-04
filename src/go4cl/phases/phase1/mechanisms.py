@@ -25,6 +25,7 @@ from go4cl.analysis.attention import query_attention_to_operands
 from go4cl.analysis.cache import (
     accuracy_from_logits,
     collect_batches,
+    operand_residues,
     to_jsonable,
 )
 from go4cl.analysis.causal import (
@@ -34,7 +35,12 @@ from go4cl.analysis.causal import (
     project_out_freqs_from_digit_emb,
 )
 from go4cl.analysis.composition import run_composition_analysis
-from go4cl.analysis.fourier import analyze_digit_embedding_fourier
+from go4cl.analysis.fourier import (
+    analyze_digit_embedding_fourier,
+    analyze_query_resid_fourier,
+    analyze_unembedding_fourier,
+    energy_cosine,
+)
 from go4cl.analysis.probes import run_layer_probes_with_random_control
 from go4cl.data.dataset import ModularAdditionDataset, make_loader
 from go4cl.data.manifest import DataManifest
@@ -265,6 +271,31 @@ def _analyze_op(
     baseline_val = accuracy_from_logits(val_cache.logits, val_cache.labels)
 
     emb_fourier = analyze_digit_embedding_fourier(model.tok_emb, modulus=p)
+    unembed_fourier = analyze_unembedding_fourier(model.head, modulus=p)
+    _, _, sum_test = operand_residues(test_cache.tokens, i=i, j=j, modulus=p)
+    query_fourier = {
+        f"L{li}": analyze_query_resid_fourier(
+            test_cache.resid_post[li][:, -1, :],
+            sum_test,
+            modulus=p,
+            source=f"resid_post_L{li}_query_by_sum",
+        )
+        for li in layers
+    }
+    cosine_emb_unembed = energy_cosine(
+        emb_fourier["energy_by_freq"], unembed_fourier["energy_by_freq"]
+    )
+    q_key = "L1" if "L1" in query_fourier else (
+        f"L{layers[-1]}" if layers else None
+    )
+    cosine_L1_unembed = (
+        energy_cosine(
+            query_fourier[q_key]["energy_by_freq"],
+            unembed_fourier["energy_by_freq"],
+        )
+        if q_key
+        else 0.0
+    )
     top_pairs = _freq_pairs_by_energy(
         emb_fourier["energy_by_freq"], modulus=p, skip_dc=True
     )
@@ -386,6 +417,11 @@ def _analyze_op(
         "top1_imp_delta": (ablation.get("important_curve") or [{}])[0].get(
             "delta_acc"
         ),
+        "unembed_top_freq": unembed_fourier.get("top_freq"),
+        "unembed_top_energy_frac": unembed_fourier.get("top_energy_frac"),
+        "digit_emb_top_freq": emb_fourier.get("top_freq"),
+        "cosine_digit_emb_unembed": cosine_emb_unembed,
+        "cosine_queryL_unembed": cosine_L1_unembed,
         "probe_sum_acc_L0": probes_by_layer.get("L0", {}).get("probe_sum_acc"),
         "probe_sum_acc_L1": probes_by_layer.get("L1", {}).get("probe_sum_acc"),
         "n_test": int(len(test_ds)),
@@ -401,6 +437,8 @@ def _analyze_op(
         "attention": attn,
         "routing_separation": routing,
         "fourier_digit_emb": emb_fourier,
+        "fourier_unembed": unembed_fourier,
+        "fourier_query_resid": query_fourier,
         "fourier_ablation": ablation,
         "probes_by_layer": probes_by_layer,
         "composition": composition,
@@ -655,6 +693,8 @@ def run_mechanisms(args: argparse.Namespace) -> None:
         "top1_imp_freqs",
         "top1_imp_acc",
         "top1_imp_delta",
+        "unembed_top_freq",
+        "cosine_digit_emb_unembed",
         "probe_sum_acc_L0",
         "probe_sum_acc_L1",
         "worst_head_layer",
@@ -685,6 +725,8 @@ def run_mechanisms(args: argparse.Namespace) -> None:
                     ),
                     "top1_imp_acc": s.get("top1_imp_acc"),
                     "top1_imp_delta": s.get("top1_imp_delta"),
+                    "unembed_top_freq": s.get("unembed_top_freq"),
+                    "cosine_digit_emb_unembed": s.get("cosine_digit_emb_unembed"),
                     "probe_sum_acc_L0": s.get("probe_sum_acc_L0"),
                     "probe_sum_acc_L1": s.get("probe_sum_acc_L1"),
                     "worst_head_layer": wh.get("layer"),

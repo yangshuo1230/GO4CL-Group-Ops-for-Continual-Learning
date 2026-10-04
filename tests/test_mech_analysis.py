@@ -38,7 +38,47 @@ def test_residue_mean_vectors() -> None:
     assert torch.allclose(means[1], torch.tensor([5.0, 0.0]))
 
 
-def test_forward_with_cache_shapes() -> None:
+def test_unembedding_fourier_detects_frequency() -> None:
+    from go4cl.analysis.fourier import analyze_unembedding_fourier, energy_cosine
+
+    cfg = ModelConfig(d_model=8, n_layers=1, n_heads=2, n_classes=16)
+    cfg.d_mlp = 16
+    torch.manual_seed(0)
+    model = ModularTransformer(cfg)
+    p = 8
+    r = torch.arange(p).float()
+    with torch.no_grad():
+        model.head.weight.zero_()
+        model.head.weight[:p, 0] = torch.cos(2 * torch.pi * 2 * r / p)
+    out = analyze_unembedding_fourier(model.head, modulus=p)
+    assert out["source"] == "unembed_head_rows"
+    assert out["top_freq"] in {2, p - 2}
+    same = energy_cosine(out["energy_by_freq"], out["energy_by_freq"])
+    assert same > 0.99
+
+
+def test_project_out_unembed_freqs_zeros_mode() -> None:
+    from go4cl.analysis.causal import project_out_freqs_from_unembed
+    from go4cl.analysis.fourier import analyze_unembedding_fourier
+
+    cfg = ModelConfig(d_model=8, n_layers=1, n_heads=2, n_classes=16)
+    cfg.d_mlp = 16
+    torch.manual_seed(1)
+    model = ModularTransformer(cfg)
+    p = 8
+    r = torch.arange(p).float()
+    with torch.no_grad():
+        model.head.weight.zero_()
+        model.head.weight[:p, 0] = torch.cos(2 * torch.pi * 3 * r / p)
+    ablated = project_out_freqs_from_unembed(
+        model.head.weight.data, modulus=p, freqs=[3]
+    )
+    model.head.weight.data.copy_(ablated)
+    out = analyze_unembedding_fourier(model.head, modulus=p)
+    e = out["energy_by_freq"]
+    assert e[3] < 1e-6
+    assert e[p - 3] < 1e-6
+
     cfg = ModelConfig(d_model=32, n_layers=2, n_heads=4)
     cfg.d_mlp = 64
     model = ModularTransformer(cfg)

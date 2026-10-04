@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from go4cl.analysis.fourier import analyze_digit_embedding_fourier
+from go4cl.analysis.fourier import analyze_digit_embedding_fourier, analyze_unembedding_fourier
 from go4cl.constants import NUM_DIGITS
 from go4cl.model.transformer import ModularTransformer
 
@@ -54,6 +54,31 @@ def project_out_freqs_from_digit_emb(
             digits[x] - means[r] + recon[r], dtype=out.dtype
         )
     return out
+
+
+def project_out_freqs_from_unembed(
+    weight: torch.Tensor,
+    *,
+    modulus: int,
+    freqs: list[int],
+) -> torch.Tensor:
+    """Zero selected Fourier modes on unembedding rows ``0..p-1``.
+
+    Rows ``p..C-1`` (unused for this modulus) are left unchanged.
+    """
+    w = weight.detach().cpu().clone()
+    if w.shape[0] < modulus:
+        raise ValueError(f"unembed {w.shape[0]} classes < modulus {modulus}")
+    rows = w[:modulus].numpy().astype(np.float64)
+    spec = np.fft.fft(rows, axis=0)
+    for k in freqs:
+        kk = int(k) % modulus
+        spec[kk] = 0
+        if kk != 0 and (modulus - kk) % modulus != kk:
+            spec[(modulus - kk) % modulus] = 0
+    recon = np.fft.ifft(spec, axis=0).real
+    w[:modulus] = torch.as_tensor(recon, dtype=w.dtype)
+    return w
 
 
 @torch.no_grad()
@@ -276,6 +301,99 @@ def fourier_ablation_on_embeddings(
         "important_curve": important_curve,
         "unimportant_curve": unimportant_curve,
         "controls": controls,
+    }
+
+
+def fourier_ablation_on_unembedding(
+    model: ModularTransformer,
+    loader: DataLoader,
+    *,
+    modulus: int,
+    device: torch.device,
+    top_k: int = 1,
+    max_batches: int | None = None,
+    sweep_ks: list[int] | None = None,
+) -> dict[str, Any]:
+    """Ablate Fourier modes of unembedding rows ``0..p-1``; keep other classes."""
+    model = model.to(device)
+    baseline = eval_accuracy(model, loader, device=device, max_batches=max_batches)
+    fourier = analyze_unembedding_fourier(model.head, modulus=modulus)
+    pairs = _freq_pairs_by_energy(
+        fourier["energy_by_freq"], modulus=modulus, skip_dc=True
+    )
+    n_pairs = len(pairs)
+    if sweep_ks is None:
+        ks = list(range(1, min(n_pairs, 6) + 1)) if n_pairs else []
+    else:
+        ks = sorted({int(k) for k in sweep_ks if 1 <= int(k) <= n_pairs})
+        if not ks and n_pairs:
+            ks = [1]
+
+    original = model.head.weight.data.clone()
+
+    def _eval_ablate(freq_list: list[int]) -> float:
+        ablated = project_out_freqs_from_unembed(
+            original, modulus=modulus, freqs=freq_list
+        ).to(device=original.device, dtype=original.dtype)
+        model.head.weight.data.copy_(ablated)
+        acc = eval_accuracy(model, loader, device=device, max_batches=max_batches)
+        model.head.weight.data.copy_(original)
+        return acc
+
+    important_curve: list[dict[str, Any]] = []
+    unimportant_curve: list[dict[str, Any]] = []
+    for k in ks:
+        hi = pairs[:k]
+        lo = pairs[-k:] if k <= n_pairs else pairs
+        hi_freqs = [f for p in hi for f in p["freqs"]]
+        lo_freqs = [f for p in lo for f in p["freqs"]]
+        hi_acc = _eval_ablate(hi_freqs)
+        lo_acc = _eval_ablate(lo_freqs)
+        important_curve.append(
+            {
+                "k": k,
+                "freqs": hi_freqs,
+                "reps": [p["rep"] for p in hi],
+                "energy_sum": float(sum(p["energy"] for p in hi)),
+                "acc": hi_acc,
+                "delta_acc": float(hi_acc - baseline),
+            }
+        )
+        unimportant_curve.append(
+            {
+                "k": k,
+                "freqs": lo_freqs,
+                "reps": [p["rep"] for p in lo],
+                "energy_sum": float(sum(p["energy"] for p in lo)),
+                "acc": lo_acc,
+                "delta_acc": float(lo_acc - baseline),
+            }
+        )
+
+    k0 = min(max(int(top_k), 1), n_pairs) if n_pairs else 0
+    if k0 and important_curve:
+        point = next((c for c in important_curve if c["k"] == k0), important_curve[0])
+        ablated_acc = float(point["acc"])
+        ablated_freqs = list(point["freqs"])
+        delta_acc = float(point["delta_acc"])
+    else:
+        ablated_acc = baseline
+        ablated_freqs = []
+        delta_acc = 0.0
+
+    model.head.weight.data.copy_(original)
+    return {
+        "baseline_acc": baseline,
+        "ablated_acc": ablated_acc,
+        "delta_acc": delta_acc,
+        "ablated_freqs": ablated_freqs,
+        "top_k": k0,
+        "fourier_source": fourier["source"],
+        "top_energy_frac": fourier["top_energy_frac"],
+        "freq_pairs_ranked": pairs,
+        "sweep_ks": ks,
+        "important_curve": important_curve,
+        "unimportant_curve": unimportant_curve,
     }
 
 

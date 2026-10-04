@@ -33,6 +33,8 @@ from go4cl.analysis.discover import discover_targets
 from go4cl.analysis.fourier import (
     analyze_digit_embedding_fourier,
     analyze_query_resid_fourier,
+    analyze_unembedding_fourier,
+    energy_cosine,
 )
 from go4cl.analysis.probes import run_layer_probes_with_random_control
 from go4cl.data.dataset import ModularAdditionDataset, make_loader
@@ -115,6 +117,7 @@ def analyze_one(
     _, _, sum_train = operand_residues(train_cache.tokens, i=i, j=j, modulus=p)
 
     emb_fourier = analyze_digit_embedding_fourier(model.tok_emb, modulus=p)
+    unembed_fourier = analyze_unembedding_fourier(model.head, modulus=p)
     # Layer-wise Fourier on early resid (by sum class)
     fourier_by_layer = {}
     for li in layers:
@@ -124,6 +127,9 @@ def analyze_one(
             modulus=p,
             source=f"resid_post_L{li}_query_by_sum",
         )
+    cosine_emb_unembed = energy_cosine(
+        emb_fourier["energy_by_freq"], unembed_fourier["energy_by_freq"]
+    )
 
     def _collect_random_layers(random_model):
         random_model.to(device)
@@ -253,6 +259,10 @@ def analyze_one(
         )
         summary[f"steered_minus_shuffled_{key}"] = st.get("steered_minus_shuffled")
         summary[f"top_fourier_freq_{key}"] = fourier_by_layer[key].get("top_freq")
+    summary["unembed_top_freq"] = unembed_fourier.get("top_freq")
+    summary["unembed_top_energy_frac"] = unembed_fourier.get("top_energy_frac")
+    summary["digit_emb_top_freq"] = emb_fourier.get("top_freq")
+    summary["cosine_digit_emb_unembed"] = cosine_emb_unembed
 
     # Convenience primary columns = first requested layer
     primary = f"L{layers[0]}"
@@ -278,6 +288,7 @@ def analyze_one(
         "baseline_val_acc": baseline_val,
         "baseline_test_acc": baseline_test,
         "fourier_digit_emb": emb_fourier,
+        "fourier_unembed": unembed_fourier,
         "fourier_by_layer": fourier_by_layer,
         "probes_by_layer": probes_by_layer,
         "attention": attn,
@@ -374,6 +385,9 @@ def run_mech_single(args: argparse.Namespace) -> None:
             "baseline_acc": s["baseline_acc"],
             "attn_mass_operands": s["attn_mass_operands"],
             "ablation_delta_acc": s["ablation_delta_acc"],
+            "digit_emb_top_freq": s.get("digit_emb_top_freq"),
+            "unembed_top_freq": s.get("unembed_top_freq"),
+            "cosine_digit_emb_unembed": s.get("cosine_digit_emb_unembed"),
             "compose_layer_guess": s.get("compose_layer_guess"),
             "ladder_sum_jump_layer": s.get("ladder_sum_jump_layer"),
             "harmonic_jump_layer": s.get("harmonic_jump_layer"),
@@ -442,6 +456,9 @@ def run_mech_single(args: argparse.Namespace) -> None:
         [
             "attn_mass_operands",
             "ablation_delta_acc",
+            "digit_emb_top_freq",
+            "unembed_top_freq",
+            "cosine_digit_emb_unembed",
             "compose_layer_guess",
             "ladder_sum_jump_layer",
             "harmonic_jump_layer",

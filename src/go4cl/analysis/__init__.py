@@ -20,6 +20,8 @@ from go4cl.analysis.discover import MechTarget, discover_targets
 from go4cl.analysis.fourier import (
     analyze_digit_embedding_fourier,
     analyze_query_resid_fourier,
+    analyze_unembedding_fourier,
+    energy_cosine,
 )
 from go4cl.analysis.probes import (
     run_layer_probes_with_random_control,
@@ -34,6 +36,8 @@ __all__ = [
     "operand_residues",
     "analyze_digit_embedding_fourier",
     "analyze_query_resid_fourier",
+    "analyze_unembedding_fourier",
+    "energy_cosine",
     "run_operand_probes",
     "run_operand_probes_with_random_control",
     "run_layer_probes_with_random_control",

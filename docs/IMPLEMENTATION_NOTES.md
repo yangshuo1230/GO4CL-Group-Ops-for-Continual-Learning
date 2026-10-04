@@ -52,7 +52,7 @@ Full 2A/2B/2D grids have not been trained.
 - §4 目录重命名搬家
 - mean/resample activation ablation（完整版）
 - 正式 **新 𝒫 + packed_id + 100k** 1B 网格重跑
-- 1C 电路移植实验（对照机理已在 `mechanisms/20261004_1b_132221/` 完成）
+- （已做）1C 电路移植 / operand patching：`mechanisms/20261004_1b_132221/TRANSPLANT_COMPARISON.md`
 - 1A 对 p=53 的 scan（旧 1A 为 47 类 / 含 19）
 
 ## How to verify

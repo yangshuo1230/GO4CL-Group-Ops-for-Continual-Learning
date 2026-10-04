@@ -178,6 +178,7 @@ uv run go4cl phase1 multi-op \
 - 按 op（模数）过滤 val/test，复用 1A-mech：composition / attention / Fourier 消融
 - L0 路由分离：对本 op 操作数质量 vs 其他 op 操作数位置
 - **跨模 Fourier 选择性**：消融某一 \(p\) 的 top-1 频率对，测对所有 op 的 \(\Delta\)acc
+- **Unembedding 模 \(p\) Fourier**（相对 digit-emb / query residual）：`scripts/phase1/unembed_fourier.py`
 
 **要回答的问题：** 多操作促进在机制上是「复制电路」还是「共享计算 + 分路由」？
 
@@ -191,7 +192,7 @@ uv run go4cl phase1 mechanisms --ckpt-kind best
 ```
 
 **产出：** `runs/phase1/mechanisms/<stamp>/`（`CONCLUSIONS.md` + CSV/JSON）。  
-**状态：** MVP 已跑；`pair_same` 同模对照与电路移植待补。
+**状态：** packed 1B 对照已跑（含 `pair_same`/`all_same`）。电路移植 / operand patching：`scripts/phase1/circuit_transplant.py`，产物 `mechanisms/20261004_1b_132221/*/transplant/`。
 
 ---
 
