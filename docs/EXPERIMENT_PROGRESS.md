@@ -5,7 +5,7 @@
 
 **状态约定：** `未开始` · `进行中` · `已完成` · `阻塞` · `跳过`
 
-最后更新：2026-10-02
+最后更新：2026-10-04
 
 ---
 
@@ -36,7 +36,7 @@
 | 1A | 单操作 × 八模数扫描 | `go4cl phase1 scan-moduli` | `runs/phase1/scan_moduli/` | 已完成 | 比例版试跑完成；大模数可学到高 held-out；**暂不挡 1B** | 2026-09-30 |
 | 1A-mech | **单模数机理分析**（Fourier / 探针 / attention / 消融 / 组合位点） | `go4cl phase1 mech-single` | `runs/phase1/mech_single/` | 已完成 | **八模数 final 复现 p=31**：组合在 L0；频率必要；L0 head 因果不均。跨模：[`20261002_cross/`](../runs/phase1/mech_single/20261002_cross/)；p31 细图：[`p31_summary/`](../runs/phase1/mech_single/p31_summary/)。可选：训练轨迹 | 2026-10-02 |
 | 1B | 多操作单任务 / 同模数促进 | `go4cl phase1 multi-op` | `runs/phase1/multi_op/` | 进行中 | 锁定：`train_frac=0.8` / `wd=0.5` / `bs=8192` query/步 / `steps=100k`；**packed online 等权暴露**（`_pack1`）；旧 concat train 作废 | 2026-10-02 |
-| 1C | 多操作对照机理（共享计算 / 移植） | `go4cl phase1 mechanisms` | `runs/phase1/mechanisms/` | 进行中 | MVP：`four_diff`[47,43,37,23] **best** — 行为达标但组合偏 L1/L2；Fourier 消融跨模串扰 → 共享特征。见 [`20261002_four_diff_47433723/`](../runs/phase1/mechanisms/20261002_four_diff_47433723/)。待：`pair_same` / 移植 | 2026-10-02 |
+| 1C | 多操作对照机理（共享计算 / 移植） | `go4cl phase1 mechanisms` | `runs/phase1/mechanisms/` | 已完成 | 新 1B packed `20261003_132221` ×6：**all_same** 明确 `non_selective`（同模共享 Fourier）；**four_diff/pair_same** 多为 `inconclusive`（部分选择性但串扰大）。组合层随 variant 变（同模可 L0，异模偏 L1）。产物 [`20261004_1b_132221/`](../runs/phase1/mechanisms/20261004_1b_132221/)。移植仍可选 | 2026-10-04 |
 
 
 **阶段一出门条件（进入阶段二前须满足）：**
@@ -45,7 +45,7 @@
 - [x] 训练配置已锁定（1A 与 1B **两套**：1A `wd=0.3/bs=2048`；1B `wd=0.5/bs=8192/steps=100k/packed`）
 - [x] （推荐）1A-mech 至少在一个代表性模数上找到与行为一致的机理证据（p=31；见 `mech_single/p31_summary/`）；**八模数 final 已复现**（`mech_single/20261002_cross/`，旧 𝒫）
 - [ ] 1B：同模数促进 vs 近邻异模数对照有可复现行为结论 → **需** `four_diff` vs `pair_same` 在新协议上多 seed（建议 task×model ≥3×3，steps=100k）
-- [ ] 1C：在**新 1B packed_id ckpt**上重做；补 `pair_same`；naive Fourier 串扰结论已修正，勿当最终证据
+- [x] 1C：在新 1B packed_id ckpt 上重做并补 `pair_same`/`all_same`（[`20261004_1b_132221/`](../runs/phase1/mechanisms/20261004_1b_132221/)）；旧 concat MVP 仅归档
 
 ---
 
@@ -111,3 +111,5 @@
 | 2026-10-02 | **R1 协议修复**（数值以当前 53 类为准）：OperationKey / packed_id+nuisance eval / macro checkpoint / analysis dataset / steering 分 split / sampler_seed；见 `docs/REFACTOR_R1_SPEC.md`、`docs/IMPLEMENTATION_NOTES.md`。目录搬家与 Phase2 optimizer 推迟 |
 | 2026-10-02 | **R1+ 补齐可改项**：packed_id 接进 `_task_loaders` 主评；t_mem/t_gen/t_iid + `first_stable_threshold.pt`；`train_segment(preserve)`；Fourier random/norm-matched/magnitude 对照；CSV DictWriter；RESEARCH §2.2/2.3 对齐。**仍差实验重跑**（见出门条件） |
 | 2026-10-02 | **1B 默认变体去掉 `one`**：改为 `all_same four_diff pair_same`（均为 4 query，每步 packs 对齐）。`one` 仅作遗留可选 |
+| 2026-10-04 | **1B 网格** `multi_op/20261003_132221`：`all_same/four_diff/pair_same` × ts0/ts1 全部 held-out≈1.0（best） |
+| 2026-10-04 | **1C 重跑** 基于上述 6 ckpt → `mechanisms/20261004_1b_132221/`。同模 `all_same` 跨 op 消融几乎无选择性；异模有部分选择性但不稳。修复 selectivity CSV 对 packed op-key（`lat*/slot*/p*`）的写入 |

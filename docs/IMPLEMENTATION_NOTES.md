@@ -31,7 +31,7 @@ Spec: `docs/REFACTOR_R1_SPEC.md`（数值：𝒫 含 53，53-class head）
 - §4 目录重命名搬家
 - mean/resample activation ablation（完整版）
 - 正式 **新 𝒫 + packed_id + 100k** 1B 网格重跑
-- 1C 在新 1B ckpt 上重做 + `pair_same` 对照 + 移植实验
+- 1C 电路移植实验（对照机理已在 `mechanisms/20261004_1b_132221/` 完成）
 - 1A 对 p=53 的 scan（旧 1A 为 47 类 / 含 19）
 
 ## How to verify

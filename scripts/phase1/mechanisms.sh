@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Phase 1C: multi-op comparative mechanisms.
 #
-# Default: four_diff [47,43,37,23] best ckpt from concat 1B stamp.
+# Default: four_diff [31,37,29,23] best from packed 1B stamp 20261003_132221.
 #
 # Usage:
 #   bash scripts/phase1/mechanisms.sh
@@ -10,6 +10,9 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# NFS scratch (avoid system /tmp ENOSPC)
+# shellcheck disable=SC1091
+source "$(dirname "$0")/../env.sh"
 
 export PATH="${HOME}/.local/bin:${PATH}"
 if [[ -f "${HOME}/.local/bin/env" ]]; then

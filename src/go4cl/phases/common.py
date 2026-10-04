@@ -75,6 +75,10 @@ class TrainJob:
 
 def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
     """Worker entrypoint: pin one GPU and run ``a_only``."""
+    from go4cl.runtime_paths import configure_scratch_dirs
+
+    configure_scratch_dirs()
+
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = str(job.gpu)
 

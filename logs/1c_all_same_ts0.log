@@ -1,0 +1,26 @@
+[phase1/mechanisms] out=runs/phase1/mechanisms/20261004_1b_132221/all_same_ts0
+[phase1/mechanisms] job=multi_all_same_m31-31-31-31_tr0.8_ts0_ds0_a16_p1b_pack1__wd0.5_steps100000__ms0
+[phase1/mechanisms] ckpt=best.pt kind=best
+[phase1/mechanisms] data=multi_all_same_m31-31-31-31_tr0.8_ts0_ds0_a16_p1b_pack1
+[phase1/mechanisms] ops=p31@slot0(i=5,j=2), p31@slot2(i=6,j=0), p31@slot1(i=1,j=7), p31@slot3(i=3,j=4)
+[phase1/mechanisms] layers=[0, 1] composition=on
+  analyzing op latent=0 p=31 slot=0 ...
+    test=1.0000 compose=L0 own-other=0.46288109943270683 top1Δ=-0.5665322580645161 worst={'layer': 0, 'head': 1, 'delta_acc': -0.8245967775583267}
+  analyzing op latent=1 p=31 slot=2 ...
+    test=0.9980 compose=L0 own-other=0.45120789110660553 top1Δ=-0.5866935483870968 worst={'layer': 0, 'head': 0, 'delta_acc': -0.7580645233392715}
+  analyzing op latent=2 p=31 slot=1 ...
+    test=1.0000 compose=L0 own-other=0.45561546832323074 top1Δ=-0.5483870967741935 worst={'layer': 0, 'head': 0, 'delta_acc': -0.725806474685669}
+  analyzing op latent=3 p=31 slot=3 ...
+    test=0.9980 compose=L0 own-other=0.4441780298948288 top1Δ=-0.5887096774193548 worst={'layer': 0, 'head': 0, 'delta_acc': -0.7157258093357086}
+  cross-op Fourier selectivity (ablate each top-1) ...
+  compare: {'n_ops': 4, 'compose_at_L0': '4/4', 'L0_routes_to_own_operands': '4/4', 'top1_fourier_hurts_self': '4/4', 'fourier_ablation_selective': '0/4', 'worst_heads': [{'layer': 0, 'head': 1, 'delta_acc': -0.8245967775583267}, {'layer': 0, 'head': 0, 'delta_acc': -0.7580645233392715}, {'layer': 0, 'head': 0, 'delta_acc': -0.725806474685669}, {'layer': 0, 'head': 0, 'delta_acc': -0.7157258093357086}], 'verdict': 'non_selective_global_sensitivity'}
+Traceback (most recent call last):
+  File "/mnt/ningxuefei/yangshuo/GO4CL-Group-Ops-for-Continual-Learning/.venv/bin/go4cl", line 10, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/mnt/ningxuefei/yangshuo/GO4CL-Group-Ops-for-Continual-Learning/src/go4cl/__init__.py", line 188, in main
+    args._phase_runner(args)
+  File "/mnt/ningxuefei/yangshuo/GO4CL-Group-Ops-for-Continual-Learning/src/go4cl/phases/phase1/mechanisms.py", line 719, in run_mechanisms
+    "target_modulus": int(tmod),
+                      ^^^^^^^^^
+ValueError: invalid literal for int() with base 10: 'lat0/slot0/p31'

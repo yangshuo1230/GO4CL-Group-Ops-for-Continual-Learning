@@ -15,6 +15,8 @@ uv sync
 uv run wandb login
 ```
 
+临时文件与缓存默认写到仓库下 **`.tmp/`** 和 workspace **`.cache/uv`**（NFS），避免占满系统盘 `/tmp`。`uv run go4cl …` 与 `scripts/phase1/*.sh` 都会自动设置。
+
 ## Task gist
 
 - Input digits: **0–63** (64 tokens); plus `<TASK_A/B>` and `<Q_0..3>` → vocab **70**.

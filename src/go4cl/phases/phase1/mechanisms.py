@@ -42,8 +42,8 @@ from go4cl.phases.common import stamp
 from go4cl.utils.checkpoint import load_checkpoint
 
 DEFAULT_JOB = (
-    "runs/phase1/multi_op/20260930_235556/runs/"
-    "multi_four_diff_m47-43-37-23_tr0.8_ts1_ds0_a16_p1b"
+    "runs/phase1/multi_op/20261003_132221/runs/"
+    "multi_four_diff_m31-37-29-23_tr0.8_ts0_ds0_a16_p1b_pack1"
     "__wd0.5_steps100000__ms0"
 )
 DEFAULT_MECH_LAYERS: tuple[int, ...] = (0, 1)
@@ -226,20 +226,28 @@ def _analyze_op(
 ) -> dict[str, Any]:
     p = op.modulus
     i, j = op.operand_i, op.operand_j
-    train_ds = filter_by_operation(
-        train_full, latent_id=op.latent_id, slot=op.slot
-    )
-    val_ds = filter_by_operation(val_full, latent_id=op.latent_id, slot=op.slot)
-    test_ds = filter_by_operation(test_full, latent_id=op.latent_id, slot=op.slot)
-    # Packed-online: train.npz may be empty — build analysis set from manifest pools.
-    if len(train_ds) == 0 and analysis_builder is not None:
-        from go4cl.data.dataset import ModularAdditionDataset as _DS
 
-        train_examples = analysis_builder(
-            split="train",
-            target_latent_ids=[op.latent_id],
+    def _filter_or_build(ds_full, *, split: str):
+        if len(ds_full) == 0:
+            if analysis_builder is None:
+                raise ValueError(
+                    f"empty {split} split and no analysis_builder for "
+                    f"latent_id={op.latent_id}"
+                )
+            from go4cl.data.dataset import ModularAdditionDataset as _DS
+
+            examples = analysis_builder(
+                split=split,
+                target_latent_ids=[op.latent_id],
+            )
+            return _DS.from_examples(examples, task_id=0)
+        return filter_by_operation(
+            ds_full, latent_id=op.latent_id, slot=op.slot
         )
-        train_ds = _DS.from_examples(train_examples, task_id=0)
+
+    train_ds = _filter_or_build(train_full, split="train")
+    val_ds = _filter_or_build(val_full, split="val")
+    test_ds = _filter_or_build(test_full, split="test")
     train_loader = make_loader(train_ds, batch_size=256, shuffle=False)
     val_loader = make_loader(val_ds, batch_size=256, shuffle=False)
     test_loader = make_loader(test_ds, batch_size=256, shuffle=False)
@@ -685,13 +693,15 @@ def run_mechanisms(args: argparse.Namespace) -> None:
                 }
             )
 
-    # selectivity long CSV
+    # selectivity long CSV (keys are op identities, not bare moduli)
     sel_csv = out_root / "phase1_mechanisms_fourier_selectivity.csv"
     with sel_csv.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(
             f,
             fieldnames=[
+                "source_operation",
                 "source_modulus",
+                "target_operation",
                 "target_modulus",
                 "ablated_freqs",
                 "baseline_acc",
@@ -704,11 +714,13 @@ def run_mechanisms(args: argparse.Namespace) -> None:
         )
         w.writeheader()
         for row in selectivity.get("ablate_top1_matrix") or []:
-            for tmod, tv in row["by_target"].items():
+            for tgt_key, tv in row["by_target"].items():
                 w.writerow(
                     {
+                        "source_operation": row.get("source_operation", ""),
                         "source_modulus": row["source_modulus"],
-                        "target_modulus": int(tmod),
+                        "target_operation": tgt_key,
+                        "target_modulus": int(tv["modulus"]),
                         "ablated_freqs": ",".join(map(str, row["ablated_freqs"])),
                         "baseline_acc": tv["baseline_acc"],
                         "acc": tv["acc"],
@@ -751,22 +763,23 @@ def run_mechanisms(args: argparse.Namespace) -> None:
             f"{float(s.get('top1_imp_delta') or 0):+.3f} | {wh_s} |"
         )
     lines.append("\n## Cross-op Fourier selectivity (ablate source top-1)\n")
-    mods = [o.modulus for o in ops]
+    op_keys = [_op_report_key(r) for r in clean_ops]
     lines.append(
-        "| source p | "
-        + " | ".join(f"→p{m}" for m in mods)
+        "| source | "
+        + " | ".join(f"→{k}" for k in op_keys)
         + " | selectivity |"
     )
-    lines.append("|" + "---|" * (len(mods) + 2))
+    lines.append("|" + "---|" * (len(op_keys) + 2))
     for row in selectivity.get("ablate_top1_matrix") or []:
         cells = [
-            f"{row['by_target'][str(m)]['delta_acc']:+.3f}"
-            if str(m) in row["by_target"]
+            f"{row['by_target'][k]['delta_acc']:+.3f}"
+            if k in row["by_target"]
             else ""
-            for m in mods
+            for k in op_keys
         ]
+        src_label = row.get("source_operation") or str(row["source_modulus"])
         lines.append(
-            f"| {row['source_modulus']} | "
+            f"| {src_label} | "
             + " | ".join(cells)
             + f" | {row['selectivity']:+.3f} |"
         )

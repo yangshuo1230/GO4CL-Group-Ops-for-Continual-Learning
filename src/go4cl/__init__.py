@@ -115,6 +115,10 @@ def _add_phase3(sub: argparse._SubParsersAction) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    from go4cl.runtime_paths import configure_scratch_dirs
+
+    configure_scratch_dirs()
+
     parser = argparse.ArgumentParser(prog="go4cl", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 

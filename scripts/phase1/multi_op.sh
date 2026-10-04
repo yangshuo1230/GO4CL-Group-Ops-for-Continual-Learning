@@ -12,6 +12,9 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# NFS scratch (avoid system /tmp ENOSPC)
+# shellcheck disable=SC1091
+source "$(dirname "$0")/../env.sh"
 
 export PATH="${HOME}/.local/bin:${PATH}"
 if [[ -f "${HOME}/.local/bin/env" ]]; then
