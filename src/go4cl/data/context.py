@@ -40,6 +40,8 @@ class ContextBuilder:
     ) -> None:
         self.task = task
         self.splits = splits
+        self._pool_arrays: dict[tuple[int, str], np.ndarray] = {}
+        self._alias_tables: dict[int, tuple[np.ndarray, np.ndarray]] = {}
 
     def _pool(self, modulus: int, split_name: SplitName) -> list[tuple[int, int]]:
         pool = self.splits[modulus].get(split_name)
@@ -145,6 +147,96 @@ class ContextBuilder:
     def sample_train_pack(self, rng: np.random.Generator) -> list[Example]:
         record = self.sample_packed_digits(rng, default_split="train")
         return self.emit_all_queries(record, split="train")
+
+    def _pool_array(self, modulus: int, split_name: SplitName) -> np.ndarray:
+        key = (int(modulus), str(split_name))
+        cached = self._pool_arrays.get(key)
+        if cached is None:
+            cached = np.asarray(self._pool(modulus, split_name), dtype=np.int64)
+            if cached.ndim != 2 or cached.shape[1] != 2:
+                raise ValueError(f"residue pool for p={modulus} must be [N, 2]")
+            self._pool_arrays[key] = cached
+        return cached
+
+    def _alias_table(self, modulus: int) -> tuple[np.ndarray, np.ndarray]:
+        """Padded raw-token table ``[p, max_alias]`` and per-residue counts."""
+        cached = self._alias_tables.get(int(modulus))
+        if cached is not None:
+            return cached
+        rows = [
+            [x for x in range(NUM_DIGITS) if x % modulus == residue]
+            for residue in range(modulus)
+        ]
+        width = max(len(row) for row in rows)
+        table = np.zeros((modulus, width), dtype=np.int64)
+        counts = np.empty(modulus, dtype=np.int64)
+        for residue, row in enumerate(rows):
+            table[residue, : len(row)] = row
+            counts[residue] = len(row)
+        cached = (table, counts)
+        self._alias_tables[int(modulus)] = cached
+        return cached
+
+    def _sample_aliases(
+        self, rng: np.random.Generator, residues: np.ndarray, modulus: int
+    ) -> np.ndarray:
+        table, counts = self._alias_table(modulus)
+        choice = rng.integers(0, counts[residues])
+        return table[residues, choice]
+
+    def sample_train_batch(
+        self, rng: np.random.Generator, n_packs: int
+    ) -> dict[str, np.ndarray]:
+        """Draw ``n_packs`` train contexts as arrays, one row per query.
+
+        Same sampling rule as ``sample_train_pack`` repeated ``n_packs`` times
+        (uniform train residue pair, fair swap, uniform raw alias). Random
+        numbers are drawn in batch order, so a seed does not replay the scalar
+        stream. Query order inside a pack follows ``task.operations``.
+        """
+        n_packs = int(n_packs)
+        if n_packs <= 0:
+            raise ValueError(f"n_packs must be positive, got {n_packs}")
+        ops = self.task.operations
+        n_ops = len(ops)
+        digits = np.zeros((n_packs, SEQ_LEN_OPERANDS), dtype=np.int64)
+        if n_ops == 1:
+            digits[:] = rng.integers(0, NUM_DIGITS, size=digits.shape)
+
+        labels = np.empty((n_packs, n_ops), dtype=np.int64)
+        slots = np.empty((n_packs, n_ops), dtype=np.int64)
+        moduli = np.empty((n_packs, n_ops), dtype=np.int64)
+        latent_ids = np.empty((n_packs, n_ops), dtype=np.int64)
+        query_ids = np.empty(n_ops, dtype=np.int64)
+        for k, op in enumerate(ops):
+            pool = self._pool_array(op.modulus, "train")
+            picked = pool[rng.integers(0, pool.shape[0], size=n_packs)]
+            swap = rng.integers(0, 2, size=n_packs).astype(bool)
+            r_i = np.where(swap, picked[:, 1], picked[:, 0])
+            r_j = np.where(swap, picked[:, 0], picked[:, 1])
+            raw_i = self._sample_aliases(rng, r_i, op.modulus)
+            raw_j = self._sample_aliases(rng, r_j, op.modulus)
+            digits[:, op.i] = raw_i
+            digits[:, op.j] = raw_j
+            labels[:, k] = (raw_i + raw_j) % op.modulus
+            slots[:, k] = op.slot
+            moduli[:, k] = op.modulus
+            latent_ids[:, k] = op.latent_id
+            query_ids[k] = QUERY_TOKEN_IDS[op.slot]
+
+        tokens = np.empty((n_packs, n_ops, SEQ_LEN_OPERANDS + 2), dtype=np.int64)
+        tokens[:, :, :SEQ_LEN_OPERANDS] = digits[:, None, :]
+        tokens[:, :, SEQ_LEN_OPERANDS] = self.task.task_token
+        tokens[:, :, SEQ_LEN_OPERANDS + 1] = query_ids[None, :]
+        n = n_packs * n_ops
+        return {
+            "tokens": tokens.reshape(n, SEQ_LEN_OPERANDS + 2),
+            "labels": labels.reshape(n),
+            "slots": slots.reshape(n),
+            "moduli": moduli.reshape(n),
+            "latent_ids": latent_ids.reshape(n),
+            "task_ids": np.full(n, self.task.task_id, dtype=np.int64),
+        }
 
     def sample_eval_for_target(
         self,

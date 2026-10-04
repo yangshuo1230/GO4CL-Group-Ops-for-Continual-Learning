@@ -26,6 +26,27 @@ Spec: `docs/REFACTOR_R1_SPEC.md`（数值：𝒫 含 53，53-class head）
 | config | `config_resolved.json` 每 run 写出 |
 | Tests | `tests/test_r1_fixes.py` |
 
+## Phase 2 (2026-10-04)
+
+| Area | Change |
+|------|--------|
+| Data | `phases/phase2/data.py` packed A/B manifests, optional `swap` |
+| Protocols | packed 50/50 joint; interleaved via `train_steps`; sequential `switch_on=fixed\|t_mem\|t_gen` |
+| Metrics | `metrics/continual.py` forgetting / jump / exposure AUC / grok order / forward transfer |
+| CLI | `go4cl phase2 protocols\|relation-matrix\|capacity`（`--dry-run` 只落盘作业表） |
+
+Fourier/probe-before-behavior is still phase 3.
+
+### Finding: late-grokking modulus and weight decay (2026-10-04)
+
+Full-overlap seed 0 uses moduli `{41, 23, 37, 53}`. Packed train labels and residue-pair splits are intact: every class is covered, labels match \((x_i+x_j)\bmod p\).
+
+At `wd=0.5` / `0.8`, A-only or B-only can sit at train/iid/val/test \(\approx 1/23\) on **p=23** for 100k steps while the other three ops are already \(\approx 1\). Init gradients for p=23 are *largest*. After the other ops grok (~20k), query attention on p=23 stays near uniform (operand mass \(\approx 0.18\)), \(\lVert\partial L/\partial \mathrm{emb}_{\mathrm{operands}}\rVert\approx 0\), and p=23’s share of the mean-CE parameter gradient drops to \(\sim 0.4\%\). The head has learned “this query is 23-way chance”; the trunk no longer reads the two operands. The same seed at `wd=0.3` groks all four ops by ~20k (train acc 1.0, `t_gen` fires). B-only at `wd=0.8` later grokked p=23 around 60k, so the basin is path-dependent, not a broken backward pass.
+
+**Lock:** 1B and phase 2 default `weight_decay=0.3`. Old 1B grid `multi_op/20261003_132221` remains `wd=0.5`.
+
+Full 2A/2B/2D grids have not been trained.
+
 ## Still deferred（需实验时间 / 大重构）
 
 - §4 目录重命名搬家

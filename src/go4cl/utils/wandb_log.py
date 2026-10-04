@@ -68,6 +68,18 @@ def modulus_acc_metrics(
     }
 
 
+def slot_acc_metrics(
+    by_slot: dict[int, dict[str, float]],
+    *,
+    prefix: str,
+) -> dict[str, float]:
+    """Flatten EvalResult.by_slot into ``{prefix}/s{slot}`` scalars."""
+    return {
+        f"{prefix}/s{int(s)}": float(stats["accuracy"])
+        for s, stats in sorted(by_slot.items())
+    }
+
+
 def line_series_by_modulus(
     history: dict[int, list[tuple[int, float]]],
     *,
@@ -96,6 +108,24 @@ def _is_wandb_media(value: Any) -> bool:
     return isinstance(mod, str) and mod.startswith("wandb")
 
 
+def _wandb_visible(key: str) -> bool:
+    """Drop diagnostic series that flood the W&B panel.
+
+    Per-modulus accuracy stays as ``*/p{m}`` scalars. The repeated
+    ``charts/val_acc_by_modulus`` table, nuisance controls, logit margin,
+    and normalized CE are kept in local metrics only.
+    """
+    if key.startswith("charts/"):
+        return False
+    if "nuisance" in key:
+        return False
+    if key.endswith("_margin") or "/margin" in key:
+        return False
+    if key.endswith("_nce") or "/nce" in key:
+        return False
+    return True
+
+
 def log_wandb(metrics: dict[str, Any], *, step: int | None = None) -> None:
     import wandb
 
@@ -106,12 +136,12 @@ def log_wandb(metrics: dict[str, Any], *, step: int | None = None) -> None:
     scalars = {
         k: v
         for k, v in metrics.items()
-        if k != "step" and isinstance(v, (int, float))
+        if k != "step" and isinstance(v, (int, float)) and _wandb_visible(k)
     }
     media = {
         k: v
         for k, v in metrics.items()
-        if k != "step" and k not in scalars and _is_wandb_media(v)
+        if k != "step" and k not in scalars and _is_wandb_media(v) and _wandb_visible(k)
     }
     payload = {**scalars, **media}
     if not payload:

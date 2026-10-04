@@ -137,7 +137,7 @@ bash scripts/phase1/plot_mech_figures.sh
 
 ### 1B · `phase1 multi-op` — 多操作单任务与同模数促进
 
-**依赖：** 1A 配置可用。1B 锁定训练：`train_frac=0.8`、`wd=0.5`、`steps=100k`、`aliases=16`（仅 val/test 展开）、`bs=8192` query 样本/步。**训练为 packed online**：每步从各 op 的 train residue 池有放回各抽一对，拼成一条 8 位上下文，再对 4 个 query 各出一条（等权暴露）。旧 concat-train stamp 作废，数据 tag 含 `_pack1`。1A-mech 可后补。
+**依赖：** 1A 配置可用。1B 锁定训练：`train_frac=0.8`、`wd=0.3`、`steps=100k`、`aliases=16`（仅 val/test 展开）、`bs=8192` query 样本/步。**训练为 packed online**：每步从各 op 的 train residue 池有放回各抽一对，拼成一条 8 位上下文，再对 4 个 query 各出一条（等权暴露）。旧 concat-train stamp 作废，数据 tag 含 `_pack1`。1A-mech 可后补。
 
 **内容（对照设计，同一 `task_seed` 共享 operand matching + slots）：**
 
@@ -152,7 +152,7 @@ bash scripts/phase1/plot_mech_figures.sh
 
 **要回答的问题：** 第二个同模数操作是否缩短 \(t_{\mathrm{gen}}\) / 提高 held-out？相对近邻异模数对照，促进是否存在？
 
-**产出：** `runs/phase1/multi_op/<stamp>/`；W&B 除总体 `A_val_acc` 外，还记录各模数 `A_val_acc/p{m}` 曲线，以及合并图 `charts/val_acc_by_modulus`。  
+**产出：** `runs/phase1/multi_op/<stamp>/`；W&B 除总体 `A_val_acc` 外，还记录各模数 `A_val_acc/p{m}` 曲线。nuisance、margin、NCE 和按模数合并表只留在本地 metrics，不上传 W&B。  
 **状态：** 已实现训练入口。
 
 **入口：**
@@ -163,7 +163,7 @@ bash scripts/phase1/multi_op.sh --gpus 0,1,2,3,4,5 --workers-per-gpu 1
 uv run go4cl phase1 multi-op \
   --variants all_same four_diff pair_same \
   --task-seeds 0 1 \
-  --train-frac 0.8 --weight-decay 0.5 --batch-size 8192 --steps 100000 \
+  --train-frac 0.8 --weight-decay 0.3 --batch-size 8192 --steps 100000 \
   --gpus 0,1,2,3,4,5
 ```
 
@@ -213,8 +213,16 @@ uv run go4cl phase1 mechanisms --ckpt-kind best
 
 样本暴露在协议间匹配；主顺序实验在 A 已泛化且阶段一算法指标稳定后切 B；另做切换时机消融。
 
-**产出：** `runs/phase2/protocols/`。  
-**状态：** CLI 占位。
+**产出：** `runs/phase2/protocols/<stamp>/`（`jobs.json`、summary CSV、`phase2_protocols_transfer.csv`、各 run 的 `eval_history.jsonl` / `metrics.json`）。  
+**状态：** 已实现。默认超参：`train_frac=0.8`、`wd=0.3`、`bs=8192`、`steps=100000`、packed online，主评 `packed_id`。默认任务关系为全重叠 `(1,1,1)`。`--switch-on t_mem|t_gen` 在第一阶段事件触发后提前切换，第二阶段仍跑满 `--steps`。
+
+**发现（全重叠 seed 0）：** 四模数 `{41,23,37,53}` 训练分布无误。`wd=0.5/0.8` 时 p=23 可长期停在 \(\approx 1/23\)（train/iid 同样低）：模型用 query token 做 23 类均匀猜测，L0 不看操作数，对该 op 的 trunk 梯度塌掉。`wd=0.3` 约 20k 步四 op 均可 grok。详见 `docs/IMPLEMENTATION_NOTES.md`。
+
+```bash
+bash scripts/phase2/protocols.sh --gpus 0,1,2,3 --workers-per-gpu 1
+# 只列作业、不训练
+bash scripts/phase2/protocols.sh --dry-run
+```
 
 ---
 
@@ -228,8 +236,13 @@ uv run go4cl phase1 mechanisms --ckpt-kind best
 
 **要回答的问题：** 三类重叠如何分别影响遗忘与迁移？部分重叠是否比全同/全异更糟？
 
-**产出：** `runs/phase2/relation_matrix/`。  
-**状态：** CLI 占位。
+**产出：** `runs/phase2/relation_matrix/<stamp>/`，以及按 \(\rho\) 平均的 `phase2_relation-matrix_by_rho.csv`。  
+**状态：** 已实现。默认 `--grid extreme`（8 格）× `a_only b_only joint sequential_ab sequential_ba`。同一 manifest 上比较 joint 与两种顺序。`--directions swap` 交换任务 token。`--grid full` 为 27 格。
+
+```bash
+bash scripts/phase2/relation_matrix.sh --gpus 0,1,2,3,4,5
+bash scripts/phase2/relation_matrix.sh --grid full --dry-run
+```
 
 ---
 
@@ -245,6 +258,8 @@ uv run go4cl phase1 mechanisms --ckpt-kind best
 
 进度表中单独一行，便于勾选「指标管线是否齐」。
 
+**已接入 2A/2B/2D 的量：** 各任务 val/test 的 loss、acc；按槽位与模数的 acc。margin、NCE、nuisance 对照写在本地 `metrics.json` / `eval_history.jsonl`，不上传 W&B。B 开始后 A 的 jump、最陡遗忘速率、长期保留（`forgetting_A = max Acc_A - final`）；相对 B-only 的暴露对齐 AUC 与到达 0.9 的步数差（`phase2_*_transfer.csv`）；joint/顺序下谁先跨过 0.9（`grok_order`）。顺序训练中 Fourier/探针是否先于行为下降留在阶段三，不在每个 phase-2 step 里重跑电路分析。
+
 ---
 
 ### 2D · `phase2 capacity` — 容量消融
@@ -254,8 +269,13 @@ uv run go4cl phase1 mechanisms --ckpt-kind best
 
 **要回答的问题：** 失败是「无兼容解」还是「容量不够」？
 
-**产出：** `runs/phase2/capacity/`。  
-**状态：** CLI 占位。
+**产出：** `runs/phase2/capacity/<stamp>/`。  
+**状态：** 已实现。默认六种关系（全同、仅槽不同、仅操作数不同、仅模数不同、全不同、部分重叠 0.5³）× \(d\in\{32,64,128\}\) × \(L\in\{2,3,4\}\) × `a_only b_only joint sequential_ab`。
+
+```bash
+bash scripts/phase2/capacity.sh --dry-run
+bash scripts/phase2/capacity.sh --d-models 64 --n-layers-list 3 --gpus 0,1
+```
 
 ---
 
@@ -313,9 +333,9 @@ uv run go4cl phase1 mechanisms --ckpt-kind best
 | 1A-mech | `go4cl phase1 mech-single` | `src/go4cl/phases/phase1/mech_single.py` |
 | 1B | `go4cl phase1 multi-op` | `src/go4cl/phases/phase1/multi_op.py` |
 | 1C | `go4cl phase1 mechanisms` | `src/go4cl/phases/phase1/mechanisms.py`（stub） |
-| 2A | `go4cl phase2 protocols` | `src/go4cl/phases/phase2/`（stub） |
-| 2B | `go4cl phase2 relation-matrix` | 同上 |
-| 2D | `go4cl phase2 capacity` | 同上 |
+| 2A | `go4cl phase2 protocols` | `src/go4cl/phases/phase2/protocols.py` |
+| 2B | `go4cl phase2 relation-matrix` | `src/go4cl/phases/phase2/relation.py` |
+| 2D | `go4cl phase2 capacity` | `src/go4cl/phases/phase2/capacity.py` |
 | 3A–3C | `go4cl phase3 …` | `src/go4cl/phases/phase3/`（stub） |
 
 更新进度时只改 [`EXPERIMENT_PROGRESS.md`](./EXPERIMENT_PROGRESS.md)；本说明仅在步骤定义或 CLI 变更时同步修改。

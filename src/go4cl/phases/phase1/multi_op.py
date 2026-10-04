@@ -8,7 +8,7 @@ Compares (default):
 4. optional ``one`` — legacy single-op (1 query); **not** used in default 1B
 
 Locked training defaults (1B):
-  train_frac=0.8, weight_decay=0.5, steps=100000, n_aliases=16, batch_size=8192
+  train_frac=0.8, weight_decay=0.3, steps=100000, n_aliases=16, batch_size=8192
   with replacement.
 """
 
@@ -30,7 +30,7 @@ from go4cl.phases.phase1.data import prepare_multi_op_dataset
 from go4cl.tasks.multi_op import VARIANTS, choose_base_moduli, describe_variant
 
 DEFAULT_TRAIN_FRAC = 0.8
-DEFAULT_WEIGHT_DECAY = 0.5
+DEFAULT_WEIGHT_DECAY = 0.3
 DEFAULT_STEPS = 100_000
 DEFAULT_BATCH_SIZE = 8192
 DEFAULT_VARIANTS: tuple[str, ...] = ("all_same", "four_diff", "pair_same")

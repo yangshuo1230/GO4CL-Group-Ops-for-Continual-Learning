@@ -71,17 +71,21 @@ def _add_phase2(sub: argparse._SubParsersAction) -> None:
     p2 = sub.add_parser("phase2", help="Stage 2: dual-task behavioral dynamics")
     p2_sub = p2.add_subparsers(dest="step", required=True)
 
-    p_proto = p2_sub.add_parser("protocols", help="2A: joint / sequential protocols (stub)")
+    p_proto = p2_sub.add_parser(
+        "protocols", help="2A: joint / sequential / interleaved protocols"
+    )
     add_protocols_args(p_proto)
     p_proto.set_defaults(_phase_runner=run_protocols)
 
     p_rel = p2_sub.add_parser(
-        "relation-matrix", help="2B: task-relation matrix (stub)"
+        "relation-matrix", help="2B: task-relation matrix (8 extreme, then 27)"
     )
     add_relation_matrix_args(p_rel)
     p_rel.set_defaults(_phase_runner=run_relation_matrix)
 
-    p_cap = p2_sub.add_parser("capacity", help="2D: capacity ablation (stub)")
+    p_cap = p2_sub.add_parser(
+        "capacity", help="2D: width/depth ablation on representative relations"
+    )
     add_capacity_args(p_cap)
     p_cap.set_defaults(_phase_runner=run_capacity)
 

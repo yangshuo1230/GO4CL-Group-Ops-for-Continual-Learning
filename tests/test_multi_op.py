@@ -104,6 +104,8 @@ def test_sample_packed_examples_four_ops() -> None:
 
 
 def test_packed_train_loader_batch_shape() -> None:
+    import numpy as np
+
     from go4cl.data.generate import build_shared_residue_splits
     from go4cl.data.packed import make_packed_multi_op_train_loader
     from go4cl.tasks.multi_op import build_multi_op_pair
@@ -119,6 +121,13 @@ def test_packed_train_loader_batch_shape() -> None:
     # Two packs × 4 queries; slots should be two copies of {0,1,2,3}
     slots = set(batch["slots"].tolist())
     assert slots == {0, 1, 2, 3}
+    tokens = batch["tokens"].numpy()
+    labels = batch["labels"].numpy()
+    # Each pack shares one 8-digit context across its four queries.
+    assert np.array_equal(tokens[0, :8], tokens[1, :8])
+    for op, row, label in zip(task.operations, tokens[:4], labels[:4]):
+        assert 0 <= int(row[op.i]) < 64 and 0 <= int(row[op.j]) < 64
+        assert int(label) == (int(row[op.i]) + int(row[op.j])) % op.modulus
 
 
 def test_sample_packed_examples_one_op() -> None:

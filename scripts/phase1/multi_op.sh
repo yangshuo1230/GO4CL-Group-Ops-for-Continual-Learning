@@ -3,7 +3,7 @@
 #
 # Default variants: all_same | four_diff | pair_same  (all 4-query; equal packs/step)
 # Legacy ``one`` (1-query) is available but not default.
-# Locked cfg: train_frac=0.8 wd=0.5 steps=100000 aliases=16 (val/test)
+# Locked cfg: train_frac=0.8 wd=0.3 steps=100000 aliases=16 (val/test)
 #   bs=8192 query examples/step, packed online train (equal op exposure)
 #
 # Usage:

@@ -1,0 +1,125 @@
+  cache lat0/slot0/p31 n=496
+  cache lat1/slot2/p37 n=1184
+  cache lat2/slot1/p29 n=928
+  cache lat3/slot3/p23 n=368
+  lat0/slot0/p31 L0 heads=all cond=none swap=None
+  lat0/slot0/p31 L0 heads=all cond=to_other_op swap=[(5, 6), (2, 0)]
+  lat0/slot0/p31 L0 heads=all cond=to_random swap=[(5, 1), (2, 3)]
+  lat0/slot0/p31 L0 heads=H0 cond=none swap=None
+  lat0/slot0/p31 L0 heads=H0 cond=to_other_op swap=[(5, 6), (2, 0)]
+  lat0/slot0/p31 L0 heads=H0 cond=to_random swap=[(5, 1), (2, 3)]
+  lat0/slot0/p31 L0 heads=H1 cond=none swap=None
+  lat0/slot0/p31 L0 heads=H1 cond=to_other_op swap=[(5, 6), (2, 0)]
+  lat0/slot0/p31 L0 heads=H1 cond=to_random swap=[(5, 1), (2, 3)]
+  lat0/slot0/p31 L0 heads=H2 cond=none swap=None
+  lat0/slot0/p31 L0 heads=H2 cond=to_other_op swap=[(5, 6), (2, 0)]
+  lat0/slot0/p31 L0 heads=H2 cond=to_random swap=[(5, 1), (2, 3)]
+  lat0/slot0/p31 L0 heads=H3 cond=none swap=None
+  lat0/slot0/p31 L0 heads=H3 cond=to_other_op swap=[(5, 6), (2, 0)]
+  lat0/slot0/p31 L0 heads=H3 cond=to_random swap=[(5, 1), (2, 3)]
+  lat0/slot0/p31 L1 heads=all cond=none swap=None
+  lat0/slot0/p31 L1 heads=all cond=to_other_op swap=[(5, 6), (2, 0)]
+  lat0/slot0/p31 L1 heads=all cond=to_random swap=[(5, 1), (2, 3)]
+  lat0/slot0/p31 L1 heads=H0 cond=none swap=None
+  lat0/slot0/p31 L1 heads=H0 cond=to_other_op swap=[(5, 6), (2, 0)]
+  lat0/slot0/p31 L1 heads=H0 cond=to_random swap=[(5, 1), (2, 3)]
+  lat0/slot0/p31 L1 heads=H1 cond=none swap=None
+  lat0/slot0/p31 L1 heads=H1 cond=to_other_op swap=[(5, 6), (2, 0)]
+  lat0/slot0/p31 L1 heads=H1 cond=to_random swap=[(5, 1), (2, 3)]
+  lat0/slot0/p31 L1 heads=H2 cond=none swap=None
+  lat0/slot0/p31 L1 heads=H2 cond=to_other_op swap=[(5, 6), (2, 0)]
+  lat0/slot0/p31 L1 heads=H2 cond=to_random swap=[(5, 1), (2, 3)]
+  lat0/slot0/p31 L1 heads=H3 cond=none swap=None
+  lat0/slot0/p31 L1 heads=H3 cond=to_other_op swap=[(5, 6), (2, 0)]
+  lat0/slot0/p31 L1 heads=H3 cond=to_random swap=[(5, 1), (2, 3)]
+  lat1/slot2/p37 L0 heads=all cond=none swap=None
+  lat1/slot2/p37 L0 heads=all cond=to_other_op swap=[(6, 5), (0, 2)]
+  lat1/slot2/p37 L0 heads=all cond=to_random swap=[(6, 1), (0, 4)]
+  lat1/slot2/p37 L0 heads=H0 cond=none swap=None
+  lat1/slot2/p37 L0 heads=H0 cond=to_other_op swap=[(6, 5), (0, 2)]
+  lat1/slot2/p37 L0 heads=H0 cond=to_random swap=[(6, 1), (0, 4)]
+  lat1/slot2/p37 L0 heads=H1 cond=none swap=None
+  lat1/slot2/p37 L0 heads=H1 cond=to_other_op swap=[(6, 5), (0, 2)]
+  lat1/slot2/p37 L0 heads=H1 cond=to_random swap=[(6, 1), (0, 4)]
+  lat1/slot2/p37 L0 heads=H2 cond=none swap=None
+  lat1/slot2/p37 L0 heads=H2 cond=to_other_op swap=[(6, 5), (0, 2)]
+  lat1/slot2/p37 L0 heads=H2 cond=to_random swap=[(6, 1), (0, 4)]
+  lat1/slot2/p37 L0 heads=H3 cond=none swap=None
+  lat1/slot2/p37 L0 heads=H3 cond=to_other_op swap=[(6, 5), (0, 2)]
+  lat1/slot2/p37 L0 heads=H3 cond=to_random swap=[(6, 1), (0, 4)]
+  lat1/slot2/p37 L1 heads=all cond=none swap=None
+  lat1/slot2/p37 L1 heads=all cond=to_other_op swap=[(6, 5), (0, 2)]
+  lat1/slot2/p37 L1 heads=all cond=to_random swap=[(6, 1), (0, 4)]
+  lat1/slot2/p37 L1 heads=H0 cond=none swap=None
+  lat1/slot2/p37 L1 heads=H0 cond=to_other_op swap=[(6, 5), (0, 2)]
+  lat1/slot2/p37 L1 heads=H0 cond=to_random swap=[(6, 1), (0, 4)]
+  lat1/slot2/p37 L1 heads=H1 cond=none swap=None
+  lat1/slot2/p37 L1 heads=H1 cond=to_other_op swap=[(6, 5), (0, 2)]
+  lat1/slot2/p37 L1 heads=H1 cond=to_random swap=[(6, 1), (0, 4)]
+  lat1/slot2/p37 L1 heads=H2 cond=none swap=None
+  lat1/slot2/p37 L1 heads=H2 cond=to_other_op swap=[(6, 5), (0, 2)]
+  lat1/slot2/p37 L1 heads=H2 cond=to_random swap=[(6, 1), (0, 4)]
+  lat1/slot2/p37 L1 heads=H3 cond=none swap=None
+  lat1/slot2/p37 L1 heads=H3 cond=to_other_op swap=[(6, 5), (0, 2)]
+  lat1/slot2/p37 L1 heads=H3 cond=to_random swap=[(6, 1), (0, 4)]
+  lat2/slot1/p29 L0 heads=all cond=none swap=None
+  lat2/slot1/p29 L0 heads=all cond=to_other_op swap=[(1, 5), (7, 2)]
+  lat2/slot1/p29 L0 heads=all cond=to_random swap=[(1, 6), (7, 4)]
+  lat2/slot1/p29 L0 heads=H0 cond=none swap=None
+  lat2/slot1/p29 L0 heads=H0 cond=to_other_op swap=[(1, 5), (7, 2)]
+  lat2/slot1/p29 L0 heads=H0 cond=to_random swap=[(1, 6), (7, 4)]
+  lat2/slot1/p29 L0 heads=H1 cond=none swap=None
+  lat2/slot1/p29 L0 heads=H1 cond=to_other_op swap=[(1, 5), (7, 2)]
+  lat2/slot1/p29 L0 heads=H1 cond=to_random swap=[(1, 6), (7, 4)]
+  lat2/slot1/p29 L0 heads=H2 cond=none swap=None
+  lat2/slot1/p29 L0 heads=H2 cond=to_other_op swap=[(1, 5), (7, 2)]
+  lat2/slot1/p29 L0 heads=H2 cond=to_random swap=[(1, 6), (7, 4)]
+  lat2/slot1/p29 L0 heads=H3 cond=none swap=None
+  lat2/slot1/p29 L0 heads=H3 cond=to_other_op swap=[(1, 5), (7, 2)]
+  lat2/slot1/p29 L0 heads=H3 cond=to_random swap=[(1, 6), (7, 4)]
+  lat2/slot1/p29 L1 heads=all cond=none swap=None
+  lat2/slot1/p29 L1 heads=all cond=to_other_op swap=[(1, 5), (7, 2)]
+  lat2/slot1/p29 L1 heads=all cond=to_random swap=[(1, 6), (7, 4)]
+  lat2/slot1/p29 L1 heads=H0 cond=none swap=None
+  lat2/slot1/p29 L1 heads=H0 cond=to_other_op swap=[(1, 5), (7, 2)]
+  lat2/slot1/p29 L1 heads=H0 cond=to_random swap=[(1, 6), (7, 4)]
+  lat2/slot1/p29 L1 heads=H1 cond=none swap=None
+  lat2/slot1/p29 L1 heads=H1 cond=to_other_op swap=[(1, 5), (7, 2)]
+  lat2/slot1/p29 L1 heads=H1 cond=to_random swap=[(1, 6), (7, 4)]
+  lat2/slot1/p29 L1 heads=H2 cond=none swap=None
+  lat2/slot1/p29 L1 heads=H2 cond=to_other_op swap=[(1, 5), (7, 2)]
+  lat2/slot1/p29 L1 heads=H2 cond=to_random swap=[(1, 6), (7, 4)]
+  lat2/slot1/p29 L1 heads=H3 cond=none swap=None
+  lat2/slot1/p29 L1 heads=H3 cond=to_other_op swap=[(1, 5), (7, 2)]
+  lat2/slot1/p29 L1 heads=H3 cond=to_random swap=[(1, 6), (7, 4)]
+  lat3/slot3/p23 L0 heads=all cond=none swap=None
+  lat3/slot3/p23 L0 heads=all cond=to_other_op swap=[(3, 5), (4, 2)]
+  lat3/slot3/p23 L0 heads=all cond=to_random swap=[(3, 7), (4, 0)]
+  lat3/slot3/p23 L0 heads=H0 cond=none swap=None
+  lat3/slot3/p23 L0 heads=H0 cond=to_other_op swap=[(3, 5), (4, 2)]
+  lat3/slot3/p23 L0 heads=H0 cond=to_random swap=[(3, 7), (4, 0)]
+  lat3/slot3/p23 L0 heads=H1 cond=none swap=None
+  lat3/slot3/p23 L0 heads=H1 cond=to_other_op swap=[(3, 5), (4, 2)]
+  lat3/slot3/p23 L0 heads=H1 cond=to_random swap=[(3, 7), (4, 0)]
+  lat3/slot3/p23 L0 heads=H2 cond=none swap=None
+  lat3/slot3/p23 L0 heads=H2 cond=to_other_op swap=[(3, 5), (4, 2)]
+  lat3/slot3/p23 L0 heads=H2 cond=to_random swap=[(3, 7), (4, 0)]
+  lat3/slot3/p23 L0 heads=H3 cond=none swap=None
+  lat3/slot3/p23 L0 heads=H3 cond=to_other_op swap=[(3, 5), (4, 2)]
+  lat3/slot3/p23 L0 heads=H3 cond=to_random swap=[(3, 7), (4, 0)]
+  lat3/slot3/p23 L1 heads=all cond=none swap=None
+  lat3/slot3/p23 L1 heads=all cond=to_other_op swap=[(3, 5), (4, 2)]
+  lat3/slot3/p23 L1 heads=all cond=to_random swap=[(3, 7), (4, 0)]
+  lat3/slot3/p23 L1 heads=H0 cond=none swap=None
+  lat3/slot3/p23 L1 heads=H0 cond=to_other_op swap=[(3, 5), (4, 2)]
+  lat3/slot3/p23 L1 heads=H0 cond=to_random swap=[(3, 7), (4, 0)]
+  lat3/slot3/p23 L1 heads=H1 cond=none swap=None
+  lat3/slot3/p23 L1 heads=H1 cond=to_other_op swap=[(3, 5), (4, 2)]
+  lat3/slot3/p23 L1 heads=H1 cond=to_random swap=[(3, 7), (4, 0)]
+  lat3/slot3/p23 L1 heads=H2 cond=none swap=None
+  lat3/slot3/p23 L1 heads=H2 cond=to_other_op swap=[(3, 5), (4, 2)]
+  lat3/slot3/p23 L1 heads=H2 cond=to_random swap=[(3, 7), (4, 0)]
+  lat3/slot3/p23 L1 heads=H3 cond=none swap=None
+  lat3/slot3/p23 L1 heads=H3 cond=to_other_op swap=[(3, 5), (4, 2)]
+  lat3/slot3/p23 L1 heads=H3 cond=to_random swap=[(3, 7), (4, 0)]
+done → runs/phase1/mechanisms/20261004_1b_132221/four_diff_ts0/attn_swap

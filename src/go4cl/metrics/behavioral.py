@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -52,6 +53,31 @@ class EvalResult:
         }
 
 
+def _as_numpy(value: Any, n: int, *, fill: int) -> np.ndarray:
+    if value is None:
+        return np.full(n, fill, dtype=np.int64)
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().numpy().reshape(-1).astype(np.int64, copy=False)
+    return np.asarray(value, dtype=np.int64).reshape(-1)
+
+
+def _add_group(
+    bucket: dict[Any, list[float]],
+    key: Any,
+    *,
+    correct: float,
+    n: float,
+    loss: float = 0.0,
+) -> None:
+    rec = bucket.get(key)
+    if rec is None:
+        rec = [0.0, 0.0, 0.0]
+        bucket[key] = rec
+    rec[0] += correct
+    rec[1] += n
+    rec[2] += loss
+
+
 def _op_key(task_id: int, latent_id: int, slot: int) -> str:
     if latent_id >= 0:
         return f"task{task_id}/lat{latent_id}/slot{slot}"
@@ -72,8 +98,7 @@ def evaluate(
     nce_sum = 0.0
     slot_stats: dict[int, list[float]] = {}
     mod_stats: dict[int, list[float]] = {}
-    op_correct: dict[str, list[float]] = {}
-    op_loss: dict[str, list[float]] = {}
+    op_stats: dict[str, list[float]] = {}
 
     for batch in loader:
         tokens = batch["tokens"].to(device)
@@ -97,32 +122,46 @@ def evaluate(
         if moduli is not None:
             nce_sum += normalized_ce(logits, labels, moduli.to(device)) * bs
 
-        for i in range(bs):
-            s = int(slots[i].item())
-            m = int(moduli[i].item())
-            tid = int(task_ids[i].item()) if task_ids is not None else 0
-            lid = int(latent_ids[i].item()) if latent_ids is not None else -1
-            ok = float(correct[i].item())
-            slot_stats.setdefault(s, []).append(ok)
-            mod_stats.setdefault(m, []).append(ok)
-            key = _op_key(tid, lid, s)
-            op_correct.setdefault(key, []).append(ok)
-            op_loss.setdefault(key, []).append(float(ce[i].item()))
+        correct_np = correct.detach().cpu().numpy()
+        ce_np = ce.detach().cpu().numpy()
+        slots_np = _as_numpy(slots, bs, fill=-1)
+        mods_np = _as_numpy(moduli, bs, fill=-1)
+        task_np = _as_numpy(task_ids, bs, fill=0)
+        latent_np = _as_numpy(latent_ids, bs, fill=-1)
+        for key_arr, bucket in ((slots_np, slot_stats), (mods_np, mod_stats)):
+            uniq, inverse = np.unique(key_arr, return_inverse=True)
+            for index, key in enumerate(uniq):
+                mask = inverse == index
+                _add_group(
+                    bucket,
+                    int(key),
+                    correct=float(correct_np[mask].sum()),
+                    n=float(mask.sum()),
+                )
+        combo = np.stack([task_np, latent_np, slots_np], axis=1)
+        uniq_rows, inverse = np.unique(combo, axis=0, return_inverse=True)
+        for index, row in enumerate(uniq_rows):
+            mask = inverse == index
+            _add_group(
+                op_stats,
+                _op_key(int(row[0]), int(row[1]), int(row[2])),
+                correct=float(correct_np[mask].sum()),
+                n=float(mask.sum()),
+                loss=float(ce_np[mask].sum()),
+            )
 
     def _agg_acc(stats: dict[int, list[float]]) -> dict[int, dict[str, float]]:
         return {
-            k: {"accuracy": sum(v) / max(len(v), 1), "n": float(len(v))}
-            for k, v in sorted(stats.items())
+            k: {"accuracy": rec[0] / max(rec[1], 1.0), "n": rec[1]}
+            for k, rec in sorted(stats.items())
         }
 
     by_operation: dict[str, dict[str, float]] = {}
-    for key in sorted(op_correct.keys()):
-        accs = op_correct[key]
-        losses = op_loss[key]
+    for key, rec in sorted(op_stats.items()):
         by_operation[key] = {
-            "accuracy": sum(accs) / max(len(accs), 1),
-            "loss": sum(losses) / max(len(losses), 1),
-            "n": float(len(accs)),
+            "accuracy": rec[0] / max(rec[1], 1.0),
+            "loss": rec[2] / max(rec[1], 1.0),
+            "n": rec[1],
         }
 
     if by_operation:

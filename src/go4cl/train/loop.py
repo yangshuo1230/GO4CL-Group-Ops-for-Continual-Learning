@@ -20,7 +20,11 @@ from go4cl.train.checkpoint_selection import (
     default_event_detectors,
 )
 from go4cl.utils.checkpoint import save_checkpoint
-from go4cl.utils.wandb_log import line_series_by_modulus, log_wandb, modulus_acc_metrics
+from go4cl.utils.wandb_log import (
+    log_wandb,
+    modulus_acc_metrics,
+    slot_acc_metrics,
+)
 
 _PRIMARY_VAL = re.compile(r"^(?:A|B)_val$|^val$")
 
@@ -57,6 +61,8 @@ class TrainState:
     first_stable_ckpt_path: str | None = None
     events: dict[str, int | None] = field(default_factory=dict)
     optimizer: torch.optim.Optimizer | None = None
+    # Numeric eval rows (no W&B media). Phase 2 reads this for forgetting curves.
+    eval_history: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -73,6 +79,27 @@ def build_optimizer(model: ModularTransformer, cfg: TrainConfig) -> torch.optim.
         weight_decay=cfg.weight_decay,
         betas=(0.9, 0.98),
     )
+
+
+def _train_callable(model: ModularTransformer, device: torch.device):
+    """Use a Triton-compiled forward on CUDA. Cached on the module across segments.
+
+    ``False`` means compile was attempted and failed, so later segments stay eager.
+    """
+    if device.type != "cuda":
+        return model
+    cached = getattr(model, "_go4cl_compiled", None)
+    if cached is False:
+        return model
+    if cached is None:
+        print(
+            "[train] compiling with Triton (mode=reduce-overhead); first step is slow",
+            flush=True,
+        )
+        cached = torch.compile(model, mode="reduce-overhead")
+        # Bypass Module.__setattr__ so the wrapper is not registered as a child.
+        object.__setattr__(model, "_go4cl_compiled", cached)
+    return cached
 
 
 def infinite_loader(loader: DataLoader) -> Iterator[dict[str, torch.Tensor]]:
@@ -111,14 +138,26 @@ def train_steps(
     batches = infinite_loader(train_loader)
     total = int(cfg.max_steps)
     pbar = tqdm(range(1, total + 1), desc=run_name, leave=False)
-    val_mod_hist: dict[int, list[tuple[int, float]]] = {}
+    train_model = _train_callable(model, device)
 
     for local_step in pbar:
         model.train()
         batch = next(batches)
         tokens = batch["tokens"].to(device)
         labels = batch["labels"].to(device)
-        out = model(tokens, labels)
+        try:
+            out = train_model(tokens, labels)
+        except Exception as exc:
+            if train_model is model:
+                raise
+            print(
+                f"[{run_name}] Triton compile failed ({type(exc).__name__}: {exc}); "
+                "continuing eager",
+                flush=True,
+            )
+            object.__setattr__(model, "_go4cl_compiled", False)
+            train_model = model
+            out = model(tokens, labels)
         loss = out["loss"]
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -155,16 +194,15 @@ def train_steps(
                 record[f"{name}_acc"] = result.accuracy
                 record[f"{name}_macro_op_acc"] = result.macro_operation_accuracy
                 record[f"{name}_macro_op_loss"] = result.macro_operation_loss
+                record[f"{name}_margin"] = result.mean_correct_logit_margin
+                record[f"{name}_nce"] = result.normalized_cross_entropy
                 record.update(
                     modulus_acc_metrics(result.by_modulus, prefix=f"{name}_acc")
                 )
+                record.update(slot_acc_metrics(result.by_slot, prefix=f"{name}_acc"))
                 if is_primary_val_loader(name):
                     val_macros[name] = result.macro_operation_accuracy
                     val_losses[name] = result.macro_operation_loss
-                    for m, stats in result.by_modulus.items():
-                        val_mod_hist.setdefault(int(m), []).append(
-                            (step, float(stats["accuracy"]))
-                        )
 
             # Stable events (fixed eval sets only — never minibatch train_acc)
             if detectors:
@@ -234,12 +272,7 @@ def train_steps(
                 else:
                     record["best_val_acc"] = state.best_val_acc
                     record["best_step"] = state.best_step
-            chart = line_series_by_modulus(
-                val_mod_hist,
-                title="Val accuracy by modulus",
-            )
-            if chart is not None:
-                record["charts/val_acc_by_modulus"] = chart
+            _append_eval_history(state, record, segment=run_name)
 
         if record is not None:
             log_wandb(record, step=step)
@@ -284,6 +317,7 @@ def train_segment(
     ckpt_dir: str | None = None,
     run_name: str = "segment",
     track_events: bool = True,
+    stop_fn: Callable[[TrainState], bool] | None = None,
 ) -> TrainSegmentResult:
     """Optimizer-aware training segment for Phase 2 sequential protocols.
 
@@ -304,9 +338,23 @@ def train_segment(
         optimizer=opt,
         start_step=start_step,
         track_events=track_events,
+        stop_fn=stop_fn,
     )
     assert state.optimizer is not None
     return TrainSegmentResult(state=state, optimizer=state.optimizer, model=model)
+
+
+def _append_eval_history(
+    state: TrainState, record: dict[str, Any], *, segment: str
+) -> None:
+    """Keep a JSON-safe copy of one eval row for offline behavioral metrics."""
+    row: dict[str, Any] = {"step": int(record.get("step", state.step)), "segment": segment}
+    for key, value in record.items():
+        if key == "step":
+            continue
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            row[key] = value
+    state.eval_history.append(row)
 
 
 def _first_macro(

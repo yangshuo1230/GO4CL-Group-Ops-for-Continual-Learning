@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -15,8 +16,13 @@ from go4cl.data.dataset import (
     make_loader,
 )
 from go4cl.data.manifest import DataManifest
-from go4cl.data.packed import make_packed_multi_op_train_loader
+from go4cl.data.packed import (
+    AlternatingTaskLoader,
+    BalancedPackedJointLoader,
+    make_packed_multi_op_train_loader,
+)
 from go4cl.metrics.behavioral import evaluate, forgetting
+from go4cl.metrics.continual import summarize_behavior
 from go4cl.model.transformer import ModelConfig, ModularTransformer
 from go4cl.train.loop import TrainConfig, TrainState, train_steps
 from go4cl.utils.checkpoint import load_checkpoint, save_checkpoint, write_json
@@ -27,6 +33,7 @@ from go4cl.utils.wandb_log import (
     init_wandb,
     log_wandb,
     modulus_acc_metrics,
+    slot_acc_metrics,
 )
 
 ProtocolName = Literal[
@@ -50,8 +57,12 @@ class ProtocolResult:
 def _eval_bundle(
     loaders: dict[str, dict[str, DataLoader]],
     *tasks: str,
+    include_test: bool = False,
 ) -> dict[str, DataLoader]:
-    """Primary val (+ optional train_eval / iid / nuisance controls) for train_steps."""
+    """Primary val (+ optional train_eval / iid / nuisance / test) for train_steps.
+
+    Test loaders are logged only. Checkpoint selection still uses ``*_val``.
+    """
     out: dict[str, DataLoader] = {}
     for task in tasks:
         out[f"{task}_val"] = loaders[task]["val"]
@@ -61,7 +72,37 @@ def _eval_bundle(
             out[f"{task}_iid"] = loaders[task]["iid"]
         if "val_nuisance" in loaders[task]:
             out[f"{task}_val_nuisance"] = loaders[task]["val_nuisance"]
+        if include_test:
+            out[f"{task}_test"] = loaders[task]["test"]
+            if "test_nuisance" in loaders[task]:
+                out[f"{task}_test_nuisance"] = loaders[task]["test_nuisance"]
     return out
+
+
+def _switch_stop(switch_on: str):
+    """Stop the first phase once a stable event fires. ``fixed`` never stops early."""
+    if switch_on == "fixed":
+        return None
+    if switch_on not in {"t_mem", "t_gen"}:
+        raise ValueError(f"switch_on must be fixed|t_mem|t_gen, got {switch_on}")
+
+    def _stop(state) -> bool:
+        return state.events.get(switch_on) is not None
+
+    return _stop
+
+
+def _write_history(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def _flatten_block(metrics: dict[str, Any], block: dict[str, Any]) -> None:
+    for key, value in block.items():
+        if key != "tag":
+            metrics[key] = value
 
 
 def _task_loaders(
@@ -179,6 +220,9 @@ def run_protocol(
     wandb_config: dict[str, Any] | None = None,
     wandb_group: str | None = None,
     wandb_tags: list[str] | None = None,
+    include_test: bool = False,
+    switch_on: str = "fixed",
+    eval_n_per_operation: int = 256,
 ) -> ProtocolResult:
     """
     Run one of the plan's training protocols on a fixed dataset root.
@@ -204,6 +248,7 @@ def run_protocol(
         train_replacement=bool(train_cfg.train_replacement),
         train_seed=model_seed,
         sampler_seed=resolved_sampler_seed,
+        eval_n_per_operation=int(eval_n_per_operation),
     )
     packed_a = getattr(loaders["A"]["train"], "n_packs", None)
     packed_b = getattr(loaders["B"]["train"], "n_packs", None)
@@ -225,6 +270,8 @@ def run_protocol(
         "model_seed": model_seed,
         "sampler_seed": resolved_sampler_seed,
         "phase_steps": steps,
+        "include_test": bool(include_test),
+        "switch_on": switch_on,
         "data_root": str(data_root),
         "out_dir": str(out_dir),
         "model": model_cfg.to_dict(),
@@ -260,6 +307,11 @@ def run_protocol(
         define_train_metrics()
 
     final_step = 0
+    history: list[dict[str, Any]] = []
+    bundle_kw = {"include_test": bool(include_test)}
+
+    def _absorb(state) -> None:
+        history.extend(state.eval_history)
 
     def _eval_both(tag: str) -> dict[str, Any]:
         res: dict[str, Any] = {}
@@ -270,10 +322,15 @@ def run_protocol(
                 res[f"{task}_{split}_loss"] = r.loss
                 res[f"{task}_{split}_macro_op_acc"] = r.macro_operation_accuracy
                 res[f"{task}_{split}_macro_op_loss"] = r.macro_operation_loss
+                res[f"{task}_{split}_margin"] = r.mean_correct_logit_margin
+                res[f"{task}_{split}_nce"] = r.normalized_cross_entropy
                 res.update(
                     modulus_acc_metrics(
                         r.by_modulus, prefix=f"{task}_{split}_acc"
                     )
+                )
+                res.update(
+                    slot_acc_metrics(r.by_slot, prefix=f"{task}_{split}_acc")
                 )
             for ctrl in ("val_nuisance", "test_nuisance"):
                 if ctrl in loaders[task]:
@@ -329,6 +386,9 @@ def run_protocol(
         if final_path.is_file():
             load_checkpoint(final_path, model=model, map_location=device)
 
+    stop_first = _switch_stop(switch_on)
+    metrics["switch_on"] = switch_on
+
     try:
         if protocol == "a_only":
             cfg = TrainConfig(**{**train_cfg.__dict__, "max_steps": steps})
@@ -336,10 +396,11 @@ def run_protocol(
                 model,
                 loaders["A"]["train"],
                 cfg=cfg,
-                eval_loaders=_eval_bundle(loaders, "A"),
+                eval_loaders=_eval_bundle(loaders, "A", **bundle_kw),
                 ckpt_dir=str(out_dir / "ckpts"),
                 run_name="a_only",
             )
+            _absorb(state)
             final_step = state.step
             metrics.update(_eval_both("after_a"))
             metrics["events"] = dict(state.events)
@@ -353,32 +414,45 @@ def run_protocol(
                 model,
                 loaders["B"]["train"],
                 cfg=cfg,
-                eval_loaders=_eval_bundle(loaders, "B"),
+                eval_loaders=_eval_bundle(loaders, "B", **bundle_kw),
                 ckpt_dir=str(out_dir / "ckpts"),
                 run_name="b_only",
             )
+            _absorb(state)
             final_step = state.step
             metrics.update(_eval_both("after_b"))
             metrics["events"] = dict(state.events)
             _attach_best_by_val(state, final_tag="b_only")
 
         elif protocol == "joint":
-            ds_a = ModularAdditionDataset.from_disk(data_root, "A", "train", 0)
-            ds_b = ModularAdditionDataset.from_disk(data_root, "B", "train", 1)
-            joint_loader = make_balanced_joint_loader(
-                ds_a, ds_b, batch_size=train_cfg.batch_size
-            )
+            if packed_a is not None:
+                manifest = DataManifest.load(data_root / "manifest.json")
+                joint_loader = BalancedPackedJointLoader(
+                    manifest.task_pair.task_a,
+                    manifest.task_pair.task_b,
+                    manifest.residue_splits,
+                    batch_size=int(train_cfg.batch_size or 0),
+                    seed=resolved_sampler_seed,
+                )
+            else:
+                ds_a = ModularAdditionDataset.from_disk(data_root, "A", "train", 0)
+                ds_b = ModularAdditionDataset.from_disk(data_root, "B", "train", 1)
+                joint_loader = make_balanced_joint_loader(
+                    ds_a, ds_b, batch_size=train_cfg.batch_size
+                )
             cfg = TrainConfig(**{**train_cfg.__dict__, "max_steps": 2 * steps})
             state = train_steps(
                 model,
                 joint_loader,
                 cfg=cfg,
-                eval_loaders=_eval_bundle(loaders, "A", "B"),
+                eval_loaders=_eval_bundle(loaders, "A", "B", **bundle_kw),
                 ckpt_dir=str(out_dir / "ckpts"),
                 run_name="joint",
             )
+            _absorb(state)
             final_step = state.step
             metrics.update(_eval_both("after_joint"))
+            metrics["events"] = dict(state.events)
             _attach_best_by_val(state, final_tag="joint")
 
         elif protocol in {"sequential_ab", "a_only_continued"}:
@@ -390,21 +464,37 @@ def run_protocol(
                 loaders["A"]["train"],
                 cfg=cfg_a,
                 optimizer_transition="preserve",
-                eval_loaders=_eval_bundle(loaders, "A"),
+                eval_loaders=_eval_bundle(loaders, "A", **bundle_kw),
                 ckpt_dir=str(out_dir / "ckpts"),
                 run_name="phase_a",
+                stop_fn=stop_first,
             )
+            _absorb(seg_a.state)
             state_a = seg_a.state
             save_checkpoint(
                 out_dir / "ckpts" / "theta_A.pt",
                 model,
                 optimizer=seg_a.optimizer,
                 step=state_a.step,
-                meta={"task_switch": "A_done", "optimizer_transition": "preserve"},
+                meta={
+                    "task_switch": "A_done",
+                    "optimizer_transition": "preserve",
+                    "switch_on": switch_on,
+                },
             )
             metrics["after_a"] = _eval_both("after_a")
+            metrics["switch_step"] = state_a.step
             metrics["events_phase_a"] = dict(state_a.events)
-            log_wandb({f"after_a/{k}": v for k, v in metrics["after_a"].items() if isinstance(v, (int, float))}, step=state_a.step)
+            metrics["A_test_acc_at_switch"] = metrics["after_a"]["A_test_acc"]
+            metrics["A_val_acc_at_switch"] = metrics["after_a"]["A_val_acc"]
+            log_wandb(
+                {
+                    f"after_a/{k}": v
+                    for k, v in metrics["after_a"].items()
+                    if isinstance(v, (int, float))
+                },
+                step=state_a.step,
+            )
             max_acc_a = metrics["after_a"]["A_test_acc"]
 
             if protocol == "a_only_continued":
@@ -416,13 +506,18 @@ def run_protocol(
                     optimizer=seg_a.optimizer,
                     start_step=state_a.step,
                     optimizer_transition="preserve",
-                    eval_loaders=_eval_bundle(loaders, "A"),
+                    eval_loaders=_eval_bundle(loaders, "A", **bundle_kw),
                     ckpt_dir=str(out_dir / "ckpts"),
                     run_name="phase_a_continued",
                 )
+                _absorb(seg_c.state)
                 state_c = seg_c.state
                 final_step = state_c.step
                 metrics["after_continued"] = _eval_both("after_continued")
+                _flatten_block(metrics, metrics["after_continued"])
+                metrics["drift_A"] = (
+                    metrics["after_continued"]["A_test_acc"] - max_acc_a
+                )
                 _attach_best_by_val(state_c, final_tag="phase_a_continued")
             else:
                 cfg_b = TrainConfig(**{**train_cfg.__dict__, "max_steps": steps})
@@ -433,17 +528,20 @@ def run_protocol(
                     optimizer=seg_a.optimizer,
                     start_step=state_a.step,
                     optimizer_transition="preserve",
-                    eval_loaders=_eval_bundle(loaders, "A", "B"),
+                    eval_loaders=_eval_bundle(loaders, "A", "B", **bundle_kw),
                     ckpt_dir=str(out_dir / "ckpts"),
                     run_name="phase_b",
                 )
+                _absorb(seg_b.state)
                 state_b = seg_b.state
                 final_step = state_b.step
                 metrics["after_b"] = _eval_both("after_b")
-                metrics["forgetting_A"] = forgetting(
+                _flatten_block(metrics, metrics["after_b"])
+                metrics["forgetting_A_from_switch"] = forgetting(
                     max_acc_a, metrics["after_b"]["A_test_acc"]
                 )
                 metrics["optimizer_transition"] = "preserve"
+                metrics["events_phase_b"] = dict(state_b.events)
                 _attach_best_by_val(state_b, final_tag="phase_b")
 
         elif protocol == "sequential_ba":
@@ -455,10 +553,28 @@ def run_protocol(
                 loaders["B"]["train"],
                 cfg=cfg_b,
                 optimizer_transition="preserve",
-                eval_loaders=_eval_bundle(loaders, "B"),
+                eval_loaders=_eval_bundle(loaders, "B", **bundle_kw),
                 ckpt_dir=str(out_dir / "ckpts"),
                 run_name="phase_b",
+                stop_fn=stop_first,
             )
+            _absorb(seg_b.state)
+            save_checkpoint(
+                out_dir / "ckpts" / "theta_B.pt",
+                model,
+                optimizer=seg_b.optimizer,
+                step=seg_b.state.step,
+                meta={
+                    "task_switch": "B_done",
+                    "optimizer_transition": "preserve",
+                    "switch_on": switch_on,
+                },
+            )
+            metrics["after_first"] = _eval_both("after_b")
+            metrics["switch_step"] = seg_b.state.step
+            metrics["B_test_acc_at_switch"] = metrics["after_first"]["B_test_acc"]
+            metrics["events_phase_b"] = dict(seg_b.state.events)
+            max_acc_b = metrics["after_first"]["B_test_acc"]
             cfg_a = TrainConfig(**{**train_cfg.__dict__, "max_steps": steps})
             seg_a = train_segment(
                 model,
@@ -467,51 +583,41 @@ def run_protocol(
                 optimizer=seg_b.optimizer,
                 start_step=seg_b.state.step,
                 optimizer_transition="preserve",
-                eval_loaders=_eval_bundle(loaders, "A", "B"),
+                eval_loaders=_eval_bundle(loaders, "A", "B", **bundle_kw),
                 ckpt_dir=str(out_dir / "ckpts"),
                 run_name="phase_a",
             )
+            _absorb(seg_a.state)
             final_step = seg_a.state.step
-            metrics.update(_eval_both("after_ba"))
+            metrics["after_ba"] = _eval_both("after_ba")
+            _flatten_block(metrics, metrics["after_ba"])
+            metrics["forgetting_B_from_switch"] = forgetting(
+                max_acc_b, metrics["after_ba"]["B_test_acc"]
+            )
             metrics["optimizer_transition"] = "preserve"
+            metrics["events_phase_a"] = dict(seg_a.state.events)
             _attach_best_by_val(seg_a.state, final_tag="phase_a")
 
         elif protocol == "interleaved":
-            from go4cl.train.loop import build_optimizer, infinite_loader
-
-            opt = build_optimizer(model, train_cfg)
-            it_a = infinite_loader(loaders["A"]["train"])
-            it_b = infinite_loader(loaders["B"]["train"])
-            total = 2 * steps
-            for step in range(1, total + 1):
-                model.train()
-                batch = next(it_a if step % 2 == 1 else it_b)
-                tokens = batch["tokens"].to(device)
-                labels = batch["labels"].to(device)
-                loss = model(tokens, labels)["loss"]
-                opt.zero_grad(set_to_none=True)
-                loss.backward()
-                if train_cfg.grad_clip is not None:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), train_cfg.grad_clip)
-                opt.step()
-                if step % 50 == 0 or step % train_cfg.eval_every == 0:
-                    record: dict[str, Any] = {"step": step, "train_loss": float(loss.item())}
-                    if step % train_cfg.eval_every == 0:
-                        for name, loader in (
-                            ("A_val", loaders["A"]["val"]),
-                            ("B_val", loaders["B"]["val"]),
-                        ):
-                            r = evaluate(model, loader, device)
-                            record[f"{name}_acc"] = r.accuracy
-                            record[f"{name}_loss"] = r.loss
-                    log_wandb(record, step=step)
-            final_step = total
+            mixed = AlternatingTaskLoader(loaders["A"]["train"], loaders["B"]["train"])
+            cfg = TrainConfig(**{**train_cfg.__dict__, "max_steps": 2 * steps})
+            state = train_steps(
+                model,
+                mixed,
+                cfg=cfg,
+                eval_loaders=_eval_bundle(loaders, "A", "B", **bundle_kw),
+                ckpt_dir=str(out_dir / "ckpts"),
+                run_name="interleaved",
+            )
+            _absorb(state)
+            final_step = state.step
             metrics.update(_eval_both("after_interleaved"))
+            metrics["events"] = dict(state.events)
+            _attach_best_by_val(state, final_tag="interleaved")
 
         else:
             raise ValueError(f"unknown protocol: {protocol}")
 
-        # Final scalar summary on W&B
         flat_final: dict[str, Any] = {}
         for k, v in metrics.items():
             if isinstance(v, (int, float)):
@@ -524,9 +630,31 @@ def run_protocol(
             log_wandb(flat_final, step=final_step)
 
     finally:
+        behavior = summarize_behavior(
+            protocol,
+            history,
+            switch_step=metrics.get("switch_step"),
+        )
+        metrics["behavior"] = behavior
+        if "forgetting_A" in behavior:
+            metrics["forgetting_A"] = behavior["forgetting_A"]
+        elif "forgetting_A_from_switch" in metrics:
+            metrics["forgetting_A"] = metrics["forgetting_A_from_switch"]
+        if "forgetting_B" in behavior:
+            metrics["forgetting_B"] = behavior["forgetting_B"]
+        elif "forgetting_B_from_switch" in metrics:
+            metrics["forgetting_B"] = metrics["forgetting_B_from_switch"]
+        _write_history(out_dir / "eval_history.jsonl", history)
+        behavior_log = {
+            f"behavior/{k}": v
+            for k, v in behavior.items()
+            if isinstance(v, (int, float))
+        }
+        if behavior_log:
+            log_wandb(behavior_log, step=final_step)
+        write_json(out_dir / "metrics.json", metrics)
+        write_json(out_dir / "config_resolved.json", cfg_payload)
         finish_wandb()
 
-    write_json(out_dir / "metrics.json", metrics)
-    write_json(out_dir / "config_resolved.json", cfg_payload)
     save_checkpoint(out_dir / "ckpts" / "final.pt", model, step=final_step)
     return ProtocolResult(protocol=protocol, metrics=metrics, wandb_url=wandb_url)

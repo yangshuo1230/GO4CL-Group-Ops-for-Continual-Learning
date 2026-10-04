@@ -15,7 +15,7 @@
 |------|-----|------------|------|
 | 工程预检 | `go4cl smoke` | 实现可跑通，不计科学结论 | 已完成 |
 | 阶段一 | `go4cl phase1 …` | 单任务学会什么、何时 grok | 进行中 |
-| 阶段二 | `go4cl phase2 …` | 联合 vs 顺序、任务关系→行为 | 未开始 |
+| 阶段二 | `go4cl phase2 …` | 联合 vs 顺序、任务关系→行为 | 进行中 |
 | 阶段三 | `go4cl phase3 …` | 迁移/遗忘的因果机理 | 未开始 |
 
 ---
@@ -35,14 +35,14 @@
 | 1A-0 | Grokking regime 校准（中等模数） | `go4cl phase1 calibrate` | `runs/phase1/calibrate/` | 已完成 | 锁定试跑：`train_frac=0.8` / `wd=0.3` / `steps` 见 1A；`bs=2048` 有放回 | 2026-09-30 |
 | 1A | 单操作 × 八模数扫描 | `go4cl phase1 scan-moduli` | `runs/phase1/scan_moduli/` | 已完成 | 比例版试跑完成；大模数可学到高 held-out；**暂不挡 1B** | 2026-09-30 |
 | 1A-mech | **单模数机理分析**（Fourier / 探针 / attention / 消融 / 组合位点） | `go4cl phase1 mech-single` | `runs/phase1/mech_single/` | 已完成 | **八模数 final 复现 p=31**：组合在 L0；频率必要；L0 head 因果不均。跨模：[`20261002_cross/`](../runs/phase1/mech_single/20261002_cross/)；p31 细图：[`p31_summary/`](../runs/phase1/mech_single/p31_summary/)。可选：训练轨迹 | 2026-10-02 |
-| 1B | 多操作单任务 / 同模数促进 | `go4cl phase1 multi-op` | `runs/phase1/multi_op/` | 进行中 | 锁定：`train_frac=0.8` / `wd=0.5` / `bs=8192` query/步 / `steps=100k`；**packed online 等权暴露**（`_pack1`）；旧 concat train 作废 | 2026-10-02 |
+| 1B | 多操作单任务 / 同模数促进 | `go4cl phase1 multi-op` | `runs/phase1/multi_op/` | 进行中 | 锁定：`train_frac=0.8` / `wd=0.3` / `bs=8192` query/步 / `steps=100k`；**packed online 等权暴露**（`_pack1`）；旧 concat train 作废 | 2026-10-04 |
 | 1C | 多操作对照机理（共享计算 / 移植） | `go4cl phase1 mechanisms` | `runs/phase1/mechanisms/` | 已完成 | 新 1B packed `20261003_132221` ×6：**all_same** 明确 `non_selective`（同模共享 Fourier）；**four_diff/pair_same** 多为 `inconclusive`（部分选择性但串扰大）。组合层随 variant 变（同模可 L0，异模偏 L1）。产物 [`20261004_1b_132221/`](../runs/phase1/mechanisms/20261004_1b_132221/)。移植仍可选 | 2026-10-04 |
 
 
 **阶段一出门条件（进入阶段二前须满足）：**
 
 - [x] 单任务在多数 seeds 上 held-out 准确率可靠（旧 𝒫 1A 已验证；新 𝒫/53 以 1B 网格为准，旧 47 类/含 19 仅归档）
-- [x] 训练配置已锁定（1A 与 1B **两套**：1A `wd=0.3/bs=2048`；1B `wd=0.5/bs=8192/steps=100k/packed`）
+- [x] 训练配置已锁定（1A 与 1B **两套**：1A `wd=0.3/bs=2048`；1B `wd=0.3/bs=8192/steps=100k/packed`）
 - [x] （推荐）1A-mech 至少在一个代表性模数上找到与行为一致的机理证据（p=31；见 `mech_single/p31_summary/`）；**八模数 final 已复现**（`mech_single/20261002_cross/`，旧 𝒫）
 - [ ] 1B：同模数促进 vs 近邻异模数对照有可复现行为结论 → **需** `four_diff` vs `pair_same` 在新协议上多 seed（建议 task×model ≥3×3，steps=100k）
 - [x] 1C：在新 1B packed_id ckpt 上重做并补 `pair_same`/`all_same`（[`20261004_1b_132221/`](../runs/phase1/mechanisms/20261004_1b_132221/)）；旧 concat MVP 仅归档
@@ -53,10 +53,10 @@
 
 | ID | 步骤 | CLI | 产物目录 | 状态 | 锁定配置 / 结论摘要 | 日期 |
 |----|------|-----|----------|------|---------------------|------|
-| 2A | 训练协议对照 | `go4cl phase2 protocols` | `runs/phase2/protocols/` | 未开始 | CLI 占位 | |
-| 2B | 任务关系矩阵（8 → 27） | `go4cl phase2 relation-matrix` | `runs/phase2/relation_matrix/` | 未开始 | CLI 占位 | |
-| 2C | 全程行为指标（非独立入口） | 随 2A/2B 记录 | 同上 | 未开始 | 见说明文档；无单独 CLI | |
-| 2D | 容量消融 | `go4cl phase2 capacity` | `runs/phase2/capacity/` | 未开始 | CLI 占位 | |
+| 2A | 训练协议对照 | `go4cl phase2 protocols` | `runs/phase2/protocols/` | 进行中 | 默认 `wd=0.3/bs=8192/steps=100k` packed，全重叠。p=23 在 `wd≥0.5` 易 query-only 盆地，见 IMPLEMENTATION_NOTES | 2026-10-04 |
+| 2B | 任务关系矩阵（8 → 27） | `go4cl phase2 relation-matrix` | `runs/phase2/relation_matrix/` | 进行中 | 默认 extreme 8 格；`--grid full` 为 27。实验未跑 | 2026-10-04 |
+| 2C | 全程行为指标（非独立入口） | 随 2A/2B 记录 | 同上 | 进行中 | eval history → forgetting / jump / exposure AUC / transfer CSV。Fourier 先于行为下降留阶段三 | 2026-10-04 |
+| 2D | 容量消融 | `go4cl phase2 capacity` | `runs/phase2/capacity/` | 进行中 | 六种代表关系 × \{32,64,128\} × \{2,3,4\}。实验未跑 | 2026-10-04 |
 
 **阶段二出门条件（进入阶段三前须满足）：**
 
@@ -113,3 +113,13 @@
 | 2026-10-02 | **1B 默认变体去掉 `one`**：改为 `all_same four_diff pair_same`（均为 4 query，每步 packs 对齐）。`one` 仅作遗留可选 |
 | 2026-10-04 | **1B 网格** `multi_op/20261003_132221`：`all_same/four_diff/pair_same` × ts0/ts1 全部 held-out≈1.0（best） |
 | 2026-10-04 | **1C 重跑** 基于上述 6 ckpt → `mechanisms/20261004_1b_132221/`。同模 `all_same` 跨 op 消融几乎无选择性；异模有部分选择性但不稳。修复 selectivity CSV 对 packed op-key（`lat*/slot*/p*`）的写入 |
+| 2026-10-04 | **阶段二 CLI**：`phase2 protocols` / `relation-matrix` / `capacity`。Packed 50/50 joint 与交替 interleaved；顺序训练保留优化器；行为汇总写入 `eval_history.jsonl` 与 transfer CSV。科学实验尚未开跑 |
+| 2026-10-04 | **阶段二默认步数**改为 `50000`（2A/2B/2D 共用；joint / interleaved 总步数为 `2×50000`） |
+| 2026-10-04 | **阶段二默认步数**改回 `100000`（joint / interleaved 总步数为 `2×100000`） |
+| 2026-10-04 | **阶段二默认 wd** 改为 `0.3`（2A/2B/2D 共用）。`0.5/0.8` 下全重叠 seed0 的 p=23 易停在不看操作数的解；`0.3` 约 20k 步即可 grok |
+| 2026-10-04 | **p=23 query-only 盆地**：数据/标签无误。卡住时 iid=train=val≈1/23；init 时 p=23 梯度最大；他 op grok 后 query 对操作数注意力仍≈0.18，\(\lVert\partial L/\partial\mathrm{emb}\rVert\approx 0\)，p=23 占总梯度约 0.4%。`wd=0.3` 于 ~20k 四 op 全 grok。记录见 `IMPLEMENTATION_NOTES` Phase 2 |
+| 2026-10-04 | **1B 锁定 wd** 改为 `0.3`（与阶段二对齐；旧 1B 网格仍为 `wd=0.5`） |
+| 2026-10-04 | **逐任务详细因果消融**：`scripts/phase1/causal_detail.py` → 各 variant `causal_detail/`（head/组件/Fourier k=1..6 + 跨 op 矩阵）。同模 head 共享、异模 head 部分分工 |
+| 2026-10-04 | **多操作 residual steering**：`scripts/phase1/multi_op_steering.py` → 各 variant `steering/`。L1/L2 定向改预测≈1.0（shuf 对照低）；同模跨 op 可移植方向；个别异模 op（如 p29）要到 L2 才可 steer |
+| 2026-10-04 | **Attention 位置互换**：`scripts/phase1/attn_pos_swap.py` → 各 variant `attn_swap/`。L0 质量成功挪到目标位置，但 acc_alt 仍≈随机（~0.07）；只改 routing 不足以定向改操作数 |
+| 2026-10-04 | **TASK token 编辑**：`task_token_edit.py` → `*/task_token_edit/`。TASK_A→B 准确率不变；换成 digit 才偶发掉点（phase1 几乎不依赖 TASK 身份） |

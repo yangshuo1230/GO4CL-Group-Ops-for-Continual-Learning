@@ -68,12 +68,20 @@ class CausalSelfAttention(nn.Module):
         x: torch.Tensor,
         *,
         ablate_heads: list[int] | None = None,
+        swap_key_pairs: list[tuple[int, int]] | None = None,
+        swap_heads: list[int] | None = None,
+        swap_query_only: bool = True,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Attention forward with optional head ablation.
+        """Attention forward with optional head ablation / key-position swap.
 
         Returns ``(out, attn_probs, y_pre_out)`` where ``y_pre_out`` is the
         concatenated head outputs [B, T, D] before the output projection.
         Heads listed in ``ablate_heads`` are zeroed in that concatenation.
+
+        ``swap_key_pairs``: after softmax, swap attention mass between key
+        positions ``(a, b)`` (optionally only on the query row / selected heads).
+        Used to test whether routing to operand positions is causally sufficient
+        to select which digits are composed.
         """
         b, t, c = x.shape
         qkv = self.qkv(x).reshape(b, t, 3, self.n_heads, self.d_head)
@@ -83,6 +91,28 @@ class CausalSelfAttention(nn.Module):
         att = att.masked_fill(self.mask[:, :, :t, :t] == 0, float("-inf"))
         att = F.softmax(att, dim=-1)
         att = self.attn_drop(att)
+        if swap_key_pairs:
+            att = att.clone()
+            head_ids = (
+                list(range(self.n_heads))
+                if swap_heads is None
+                else [int(h) for h in swap_heads]
+            )
+            for h in head_ids:
+                if not (0 <= h < self.n_heads):
+                    continue
+                for pos_a, pos_b in swap_key_pairs:
+                    ai, bi = int(pos_a), int(pos_b)
+                    if not (0 <= ai < t and 0 <= bi < t):
+                        continue
+                    if swap_query_only:
+                        tmp = att[:, h, -1, ai].clone()
+                        att[:, h, -1, ai] = att[:, h, -1, bi]
+                        att[:, h, -1, bi] = tmp
+                    else:
+                        tmp = att[:, h, :, ai].clone()
+                        att[:, h, :, ai] = att[:, h, :, bi]
+                        att[:, h, :, bi] = tmp
         y_heads = att @ v  # [B, H, T, Dh]
         if ablate_heads:
             y_heads = y_heads.clone()

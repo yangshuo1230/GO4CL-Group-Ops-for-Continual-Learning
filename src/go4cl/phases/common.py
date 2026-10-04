@@ -71,10 +71,16 @@ class TrainJob:
     wandb_config: dict[str, Any]
     batch_size: int = 2048
     sampler_seed: int | None = None
+    protocol: str = "a_only"
+    include_test: bool = False
+    switch_on: str = "fixed"
+    activation: str = "relu"
+    n_heads: int = 4
+    eval_n_per_operation: int = 256
 
 
 def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
-    """Worker entrypoint: pin one GPU and run ``a_only``."""
+    """Worker entrypoint: pin one GPU and run ``job.protocol`` (default a_only)."""
     from go4cl.runtime_paths import configure_scratch_dirs
 
     configure_scratch_dirs()
@@ -90,6 +96,7 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
         "lr": job.lr,
         "weight_decay": job.weight_decay,
         "model_seed": job.model_seed,
+        "protocol": job.protocol,
         "data_dir": job.data_dir,
         "status": "running",
         "started_at": utc_now(),
@@ -103,7 +110,12 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
         from go4cl.train.protocols import run_protocol
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        model_cfg = ModelConfig(d_model=job.d_model, n_layers=job.n_layers)
+        model_cfg = ModelConfig(
+            d_model=job.d_model,
+            n_layers=job.n_layers,
+            n_heads=job.n_heads,
+            activation=job.activation,
+        )
         model_cfg.d_mlp = 4 * model_cfg.d_model
         eval_every = max(job.steps // 100, 100)
         train_cfg = TrainConfig(
@@ -117,7 +129,7 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
             device=device,
         )
         proto = run_protocol(
-            "a_only",
+            job.protocol,  # type: ignore[arg-type]
             job.data_dir,
             job.out_dir,
             model_cfg=model_cfg,
@@ -129,6 +141,9 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
                 else int(job.model_seed)
             ),
             phase_steps=job.steps,
+            include_test=bool(job.include_test),
+            switch_on=job.switch_on,
+            eval_n_per_operation=int(job.eval_n_per_operation),
             wandb_enabled=True,
             wandb_project=job.wandb_project,
             wandb_name=job.job_id,

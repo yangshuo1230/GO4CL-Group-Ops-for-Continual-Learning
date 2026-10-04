@@ -1,0 +1,25 @@
+  lat0/slot0/p31 n=496 base_task_tok=64
+    original: acc=1.0000
+    task_a: acc=1.0000
+    task_b: acc=1.0000
+    digit_0: acc=1.0000
+    digit_63: acc=1.0000
+  lat1/slot2/p31 n=496 base_task_tok=64
+    original: acc=1.0000
+    task_a: acc=1.0000
+    task_b: acc=1.0000
+    digit_0: acc=1.0000
+    digit_63: acc=1.0000
+  lat2/slot1/p29 n=928 base_task_tok=64
+    original: acc=1.0000
+    task_a: acc=1.0000
+    task_b: acc=1.0000
+    digit_0: acc=0.8028
+    digit_63: acc=0.8707
+  lat3/slot3/p23 n=368 base_task_tok=64
+    original: acc=1.0000
+    task_a: acc=1.0000
+    task_b: acc=1.0000
+    digit_0: acc=1.0000
+    digit_63: acc=1.0000
+done → runs/phase1/mechanisms/20261004_1b_132221/pair_same_ts0/task_token_edit
