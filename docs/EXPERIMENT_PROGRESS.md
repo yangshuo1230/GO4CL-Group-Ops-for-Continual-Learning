@@ -14,7 +14,7 @@
 | 阶段 | CLI | 目标一句话 | 状态 |
 |------|-----|------------|------|
 | 工程预检 | `go4cl smoke` | 实现可跑通，不计科学结论 | 已完成 |
-| 阶段一 | `go4cl phase1 …` | 单任务学会什么、何时 grok | 进行中 |
+| 阶段一 | `go4cl phase1 …` | 单任务学会什么、何时 grok | 已完成 |
 | 阶段二 | `go4cl phase2 …` | 联合 vs 顺序、任务关系→行为 | 进行中 |
 | 阶段三 | `go4cl phase3 …` | 迁移/遗忘的因果机理 | 未开始 |
 
@@ -35,7 +35,7 @@
 | 1A-0 | Grokking regime 校准（中等模数） | `go4cl phase1 calibrate` | `runs/phase1/calibrate/` | 已完成 | 锁定试跑：`train_frac=0.8` / `wd=0.3` / `steps` 见 1A；`bs=2048` 有放回 | 2026-09-30 |
 | 1A | 单操作 × 八模数扫描 | `go4cl phase1 scan-moduli` | `runs/phase1/scan_moduli/` | 已完成 | 比例版试跑完成；大模数可学到高 held-out；**暂不挡 1B** | 2026-09-30 |
 | 1A-mech | **单模数机理分析**（Fourier / 探针 / attention / 消融 / 组合位点） | `go4cl phase1 mech-single` | `runs/phase1/mech_single/` | 已完成 | **八模数 final 复现 p=31**：组合在 L0；频率必要；L0 head 因果不均。跨模：[`20261002_cross/`](../runs/phase1/mech_single/20261002_cross/)；p31 细图：[`p31_summary/`](../runs/phase1/mech_single/p31_summary/)。可选：训练轨迹 | 2026-10-02 |
-| 1B | 多操作单任务 / 同模数促进 | `go4cl phase1 multi-op` | `runs/phase1/multi_op/` | 进行中 | 锁定：`train_frac=0.8` / `wd=0.3` / `bs=8192` query/步 / `steps=100k`；**packed online 等权暴露**（`_pack1`）；旧 concat train 作废 | 2026-10-04 |
+| 1B | 多操作单任务 / 同模数促进 | `go4cl phase1 multi-op` | `runs/phase1/multi_op/` | 已完成 | 锁定：`train_frac=0.8` / `wd=0.3` / `bs=8192` / `steps=100k` packed。多种子 [`20261004_170554/`](../runs/phase1/multi_op/20261004_170554/) 3×3×3：**pair_same** best test 全 ≥0.997（\(t_{\mathrm{gen}}\) 中位 11k）优于 **four_diff**（5/9 ≥0.99，中位 19k）。**暂通过**；four_diff ts0/ms0 小模未齐（p23 final≈0.55）。旧网格 `wd=0.5` 仅归档 | 2026-10-04 |
 | 1C | 多操作对照机理（共享计算 / 移植） | `go4cl phase1 mechanisms` + `circuit_transplant.py` | `runs/phase1/mechanisms/` | 已完成 | packed 1B ×6：Fourier 同模 `non_selective`、异模 `inconclusive`。深化：**L0 操作数 residual 因果必要**；L0 attn-write 不可单独移植；L2 MLP write 可被共享头读出。综述 [`TRANSPLANT_COMPARISON.md`](../runs/phase1/mechanisms/20261004_1b_132221/TRANSPLANT_COMPARISON.md) | 2026-10-04 |
 
 
@@ -44,7 +44,7 @@
 - [x] 单任务在多数 seeds 上 held-out 准确率可靠（旧 𝒫 1A 已验证；新 𝒫/53 以 1B 网格为准，旧 47 类/含 19 仅归档）
 - [x] 训练配置已锁定（1A 与 1B **两套**：1A `wd=0.3/bs=2048`；1B `wd=0.3/bs=8192/steps=100k/packed`）
 - [x] （推荐）1A-mech 至少在一个代表性模数上找到与行为一致的机理证据（p=31；见 `mech_single/p31_summary/`）；**八模数 final 已复现**（`mech_single/20261002_cross/`，旧 𝒫）
-- [ ] 1B：同模数促进 vs 近邻异模数对照有可复现行为结论 → **需** `four_diff` vs `pair_same` 在新协议上多 seed（建议 task×model ≥3×3，steps=100k）
+- [x] 1B：同模数促进 vs 近邻异模数对照 — **暂通过** [`20261004_170554/`](../runs/phase1/multi_op/20261004_170554/)（task×model=3×3）。`pair_same` 9/9 best≥0.997；`four_diff` 更慢且 1/9 小模失败（不挡阶段二）
 - [x] 1C：在新 1B packed_id ckpt 上重做并补 `pair_same`/`all_same`（[`20261004_1b_132221/`](../runs/phase1/mechanisms/20261004_1b_132221/)）；旧 concat MVP 仅归档；patching/移植见 `TRANSPLANT_COMPARISON.md`；unembed Fourier 见 `UNEMBED_FOURIER.md`
 
 ---
@@ -126,3 +126,4 @@
 | 2026-10-04 | **1C 电路移植 / activation patching**：`scripts/phase1/circuit_transplant.py`。L0 换自己的操作数 residual → 预测跟 donor；L0 只移植 attn write 双崩；L2 MLP write 可跨 op（甚至跨模）被共享头读出。综述 `mechanisms/20261004_1b_132221/TRANSPLANT_COMPARISON.md` |
 | 2026-10-04 | **Unembedding 模 p Fourier**：`scripts/phase1/unembed_fourier.py`。头上行谱能量分散（top-1 仅 3–6%），消融几乎不掉点；与 digit-emb 主频常不对齐；L2 query 与 unembed cos≈1。1C 六个 + 1A 八模。综述 `mechanisms/20261004_1b_132221/UNEMBED_FOURIER.md` |
 | 2026-10-04 | **代码结构重构（R0–R6）**：`AnalysisContext` / `analysis.pipelines`；训练协议拆分；CLI 迁到 `cli.py`；默认值 `defaults.py`；见 [`ARCHITECTURE.md`](./ARCHITECTURE.md) |
+| 2026-10-04 | **1B 多种子暂通过** `multi_op/20261004_170554`：`wd=0.3` packed，all_same/pair_same/four_diff × ts0–2 × ms0–2。同模促进成立；four_diff 1/9（ts0/ms0）p=23/29 未 grok。阶段一门关闭，进阶段二 |

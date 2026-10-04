@@ -153,7 +153,7 @@ bash scripts/phase1/plot_mech_figures.sh
 **要回答的问题：** 第二个同模数操作是否缩短 \(t_{\mathrm{gen}}\) / 提高 held-out？相对近邻异模数对照，促进是否存在？
 
 **产出：** `runs/phase1/multi_op/<stamp>/`；W&B 除总体 `A_val_acc` 外，还记录各模数 `A_val_acc/p{m}` 曲线。nuisance、margin、NCE 和按模数合并表只留在本地 metrics，不上传 W&B。  
-**状态：** 已实现训练入口。
+**状态：** 多种子 `wd=0.3` packed 已跑（`20261004_170554`）；同模促进**暂通过**（four_diff 1/9 小模失败不挡阶段二）。
 
 **入口：**
 
