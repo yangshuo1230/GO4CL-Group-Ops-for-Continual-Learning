@@ -18,6 +18,7 @@ import argparse
 from pathlib import Path
 from typing import Any
 
+from go4cl.defaults import MODEL, MULTI_OP
 from go4cl.phases.common import (
     TrainJob,
     assign_gpus,
@@ -29,11 +30,11 @@ from go4cl.phases.common import (
 from go4cl.phases.phase1.data import prepare_multi_op_dataset
 from go4cl.tasks.multi_op import VARIANTS, choose_base_moduli, describe_variant
 
-DEFAULT_TRAIN_FRAC = 0.8
-DEFAULT_WEIGHT_DECAY = 0.3
-DEFAULT_STEPS = 100_000
-DEFAULT_BATCH_SIZE = 8192
-DEFAULT_VARIANTS: tuple[str, ...] = ("all_same", "four_diff", "pair_same")
+DEFAULT_TRAIN_FRAC = MULTI_OP.train_frac
+DEFAULT_WEIGHT_DECAY = MULTI_OP.weight_decay
+DEFAULT_STEPS = MULTI_OP.steps
+DEFAULT_BATCH_SIZE = MULTI_OP.batch_size
+DEFAULT_VARIANTS: tuple[str, ...] = MULTI_OP.variants
 
 
 def run_multi_op(args: argparse.Namespace) -> None:
@@ -224,11 +225,11 @@ def add_multi_op_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--train-frac", type=float, default=DEFAULT_TRAIN_FRAC)
     parser.add_argument("--weight-decay", type=float, default=DEFAULT_WEIGHT_DECAY)
     parser.add_argument("--steps", type=int, default=DEFAULT_STEPS)
-    parser.add_argument("--n-aliases", type=int, default=16)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--n-aliases", type=int, default=MODEL.n_aliases)
+    parser.add_argument("--lr", type=float, default=MODEL.lr)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
-    parser.add_argument("--d-model", type=int, default=64)
-    parser.add_argument("--n-layers", type=int, default=3)
+    parser.add_argument("--d-model", type=int, default=MODEL.d_model)
+    parser.add_argument("--n-layers", type=int, default=MODEL.n_layers)
     parser.add_argument("--data-seed", type=int, default=0)
     parser.add_argument("--gpus", type=str, default=None)
     parser.add_argument("--workers-per-gpu", type=int, default=1)

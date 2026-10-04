@@ -331,12 +331,12 @@ bash scripts/phase2/capacity.sh --d-models 64 --n-layers-list 3 --gpus 0,1
 | E0 | `go4cl smoke` | `src/go4cl/scripts/smoke.py` |
 | 1A-0 | `go4cl phase1 calibrate` | `src/go4cl/phases/phase1/calibrate.py` |
 | 1A | `go4cl phase1 scan-moduli` | `src/go4cl/phases/phase1/modulus_scan.py` |
-| 1A-mech | `go4cl phase1 mech-single` | `src/go4cl/phases/phase1/mech_single.py` |
+| 1A-mech | `go4cl phase1 mech-single` | `src/go4cl/analysis/pipelines/single_op.py` |
 | 1B | `go4cl phase1 multi-op` | `src/go4cl/phases/phase1/multi_op.py` |
-| 1C | `go4cl phase1 mechanisms` | `src/go4cl/phases/phase1/mechanisms.py`（stub） |
+| 1C | `go4cl phase1 mechanisms` | `src/go4cl/analysis/pipelines/multi_op.py` |
 | 2A | `go4cl phase2 protocols` | `src/go4cl/phases/phase2/protocols.py` |
 | 2B | `go4cl phase2 relation-matrix` | `src/go4cl/phases/phase2/relation.py` |
 | 2D | `go4cl phase2 capacity` | `src/go4cl/phases/phase2/capacity.py` |
-| 3A–3C | `go4cl phase3 …` | `src/go4cl/phases/phase3/`（stub） |
+| 3A–3C | `go4cl phase3 …` | `src/go4cl/phases/phase3/`（not implemented） |
 
 更新进度时只改 [`EXPERIMENT_PROGRESS.md`](./EXPERIMENT_PROGRESS.md)；本说明仅在步骤定义或 CLI 变更时同步修改。

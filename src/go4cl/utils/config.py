@@ -1,4 +1,9 @@
-"""YAML/JSON config loading."""
+"""YAML/JSON config loading.
+
+Deprecated as a configuration system: CLI defaults live in ``go4cl.defaults``
+and each run writes ``config_resolved.json``. Keep these helpers only for
+ad-hoc YAML/JSON files if you pass an explicit path in a script.
+"""
 
 from __future__ import annotations
 

@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from go4cl.analysis.context import try_resolve_checkpoint
 from go4cl.data.manifest import DataManifest
 
 _JOB_RE = re.compile(
@@ -37,29 +38,6 @@ def _experiment_id_from_job(job_id: str) -> str:
     if "__" in job_id:
         return job_id.split("__", 1)[0]
     return job_id
-
-
-def _resolve_ckpt(job_dir: Path, kind: str) -> Path | None:
-    ckpt_dir = job_dir / "ckpts"
-    if not ckpt_dir.is_dir():
-        return None
-    candidates: list[Path]
-    if kind == "final":
-        candidates = [
-            ckpt_dir / "a_only_final.pt",
-            ckpt_dir / "final.pt",
-        ]
-    elif kind == "best":
-        candidates = [
-            ckpt_dir / "best.pt",
-            ckpt_dir / "a_only_best.pt",
-        ]
-    else:
-        raise ValueError(f"unknown ckpt kind: {kind}")
-    for p in candidates:
-        if p.is_file():
-            return p
-    return None
 
 
 def discover_targets(
@@ -100,7 +78,7 @@ def discover_targets(
         manifest = DataManifest.load(data_dir / "manifest.json")
         op = manifest.task_pair.task_a.operations[0]
         for kind in kinds:
-            ckpt = _resolve_ckpt(job_dir, kind)
+            ckpt = try_resolve_checkpoint(job_dir, kind)
             if ckpt is None:
                 continue
             targets.append(

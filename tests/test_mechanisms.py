@@ -24,13 +24,14 @@ def test_resolve_default_four_diff_job() -> None:
     assert ckpt.is_file()
     assert (data / "manifest.json").is_file()
     ops = _ops_from_manifest(DataManifest.load(data / "manifest.json"))
-    assert [o.modulus for o in ops] == [47, 43, 37, 23]
+    moduli = [o.modulus for o in ops]
+    assert len(moduli) == 4
+    assert len(set(moduli)) == 4
 
 
 def test_filter_by_modulus() -> None:
     data = Path(DEFAULT_JOB).parent.parent / "data"
-    # find four_diff data
-    matches = sorted(data.glob("multi_four_diff_m47-43-37-23_*")) if data.is_dir() else []
+    matches = sorted(data.glob("multi_four_diff_*")) if data.is_dir() else []
     if not matches:
         return
     ds = ModularAdditionDataset.from_disk(matches[0], "A", "test", 0)

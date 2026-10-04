@@ -1,65 +1,67 @@
 # GO4CL
 
 Transformer continual-learning experiments on structured modular-addition tasks.
-Plan:
 
-- [`docs/RESEARCH_EXPERIMENT_PLAN.md`](docs/RESEARCH_EXPERIMENT_PLAN.md) — 总体科学计划
-- [`docs/EXPERIMENT_PROGRESS.md`](docs/EXPERIMENT_PROGRESS.md) — **分阶段进度表**（标注状态）
-- [`docs/PHASE_STEP_GUIDE.md`](docs/PHASE_STEP_GUIDE.md) — 每个阶段/步骤的具体内容
+- [`docs/RESEARCH_EXPERIMENT_PLAN.md`](docs/RESEARCH_EXPERIMENT_PLAN.md) — overall science plan
+- [`docs/EXPERIMENT_PROGRESS.md`](docs/EXPERIMENT_PROGRESS.md) — **progress table**
+- [`docs/PHASE_STEP_GUIDE.md`](docs/PHASE_STEP_GUIDE.md) — what each step does
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — code layout and data/train/analysis flow
+- [`docs/IMPLEMENTATION_NOTES.md`](docs/IMPLEMENTATION_NOTES.md) — locked protocol details
 
 ## Setup
 
 ```bash
-cd GO4CL
+cd GO4CL-Group-Ops-for-Continual-Learning
 uv sync
 uv run wandb login
 ```
 
-临时文件与缓存默认写到仓库下 **`.tmp/`** 和 workspace **`.cache/uv`**（NFS），避免占满系统盘 `/tmp`。`uv run go4cl …` 与 `scripts/phase1/*.sh` 都会自动设置。
+Scratch files go under **`.tmp/`** and workspace **`.cache/uv`**. `uv run go4cl …`
+and `scripts/phase1/*.sh` set this automatically.
 
 ## Task gist
 
 - Input digits: **0–63** (64 tokens); plus `<TASK_A/B>` and `<Q_0..3>` → vocab **70**.
-- Sequence: 8 digits + task + query → predict \((x_i+x_j)\bmod p\) (47-way head).
+- Sequence: 8 digits + task + query → predict \((x_i+x_j)\bmod p\) (**53-way** head).
 - Phase 1A: residue-pair split **only on relevant operand positions** (default `train_frac`, or optional `n_train_pairs`) × `n_aliases`; other digits ~\(U\{0..63\}\); train with **batch 2048 + replacement**.
-- Dual-task / general path still uses residue-pair splits with `n_aliases` × `n_nuisance`.
-- Moduli: \(\mathcal P=\{23,29,31,37,41,43,47,53\}\)（暂用；原 19 换 53）。
+- Phase 1B / 2: packed multi-query train (`batch_size` counts **query examples**, not packed contexts).
+- Moduli: \(\mathcal P=\{23,29,31,37,41,43,47,53\}\).
+
+Locked CLI defaults: `src/go4cl/defaults.py`. Each run writes `config_resolved.json`.
 
 ## Layout
 
 ```text
-scripts/phase1/          # launchers for stage-1 steps
-configs/phase1/          # default hyperparams
-src/go4cl/phases/        # phase1 / phase2 / phase3 code
-runs/phase1/calibrate/   # outputs (gitignored)
-runs/phase1/scan_moduli/
-docs/
-tests/
-```
-
-进度与步骤说明：
-
-```text
-docs/EXPERIMENT_PROGRESS.md   # 勾选/标注进度
-docs/PHASE_STEP_GUIDE.md      # 各步骤做什么
-docs/RESEARCH_EXPERIMENT_PLAN.md
+src/go4cl/
+  cli.py defaults.py constants.py
+  tasks/ data/ model/ train/ analysis/ phases/
+scripts/phase1/*.sh     # launchers
+scripts/phase1/*.py     # thin wrappers around analysis.pipelines
+runs/phaseN/<step>/     # outputs (gitignored)
+docs/ tests/
 ```
 
 ## Phase CLI
 
 ```bash
-# Phase 1A prelude — calibrate on p=31
+# Phase 1A-0 — calibrate on p=31
 bash scripts/phase1/calibrate.sh --gpus 4,5 --workers-per-gpu 2
 
-# Phase 1A — modulus scan (after locking train config)
+# Phase 1A — modulus scan
 bash scripts/phase1/scan_moduli.sh \
   --train-frac 0.8 --weight-decay 0.3 --steps 100000 \
   --gpus 0,1 --workers-per-gpu 4
-# optional: --n-train-pairs 150 ...
 
-# Stubs: phase1 multi-op | mechanisms ; phase2 * ; phase3 *
-uv run go4cl phase1 --help
+# Phase 1B / 1C / 2
+uv run go4cl phase1 multi-op --help
+uv run go4cl phase1 mechanisms --help
+uv run go4cl phase2 protocols --help
+
+# Analysis (also: python scripts/phase1/<name>.py)
+uv run go4cl analyze transplant --help
 ```
+
+Phase 3 commands exist but are **not implemented**.
 
 Outputs land under `runs/phaseN/<step>/`.
 

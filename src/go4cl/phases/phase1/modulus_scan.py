@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from go4cl.constants import PRIMES
+from go4cl.defaults import MODEL, SINGLE_OP
 from go4cl.phases.common import (
     TrainJob,
     assign_gpus,
@@ -24,7 +25,7 @@ from go4cl.phases.common import (
 )
 from go4cl.phases.phase1.data import DEFAULT_BATCH_SIZE, prepare_single_op_dataset
 
-DEFAULT_TRAIN_FRAC = 0.8
+DEFAULT_TRAIN_FRAC = SINGLE_OP.train_frac
 
 
 def run_scan_moduli(args: argparse.Namespace) -> None:
@@ -236,25 +237,25 @@ def add_scan_moduli_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--weight-decay",
         type=float,
-        default=1.0,
+        default=SINGLE_OP.scan_weight_decay,
         help="Locked weight decay from calibration",
     )
-    parser.add_argument("--steps", type=int, default=100_000)
+    parser.add_argument("--steps", type=int, default=SINGLE_OP.steps)
     parser.add_argument(
         "--n-aliases",
         type=int,
-        default=16,
+        default=MODEL.n_aliases,
         help="Raw aliases per residue pair on relevant operand positions",
     )
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr", type=float, default=MODEL.lr)
     parser.add_argument(
         "--batch-size",
         type=int,
         default=DEFAULT_BATCH_SIZE,
         help=f"Mini-batch size (default {DEFAULT_BATCH_SIZE})",
     )
-    parser.add_argument("--d-model", type=int, default=64)
-    parser.add_argument("--n-layers", type=int, default=3)
+    parser.add_argument("--d-model", type=int, default=MODEL.d_model)
+    parser.add_argument("--n-layers", type=int, default=MODEL.n_layers)
     parser.add_argument("--task-seed", type=int, default=0)
     parser.add_argument("--data-seed", type=int, default=0)
     parser.add_argument("--model-seeds", type=int, nargs="+", default=[0])

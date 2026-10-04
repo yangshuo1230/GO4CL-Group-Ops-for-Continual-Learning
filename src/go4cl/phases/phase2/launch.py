@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from go4cl.defaults import MODEL, PHASE2
 from go4cl.metrics.continual import GROUP_KEYS, forward_transfer_rows
 from go4cl.phases.common import (
     TrainJob,
@@ -23,11 +24,11 @@ from go4cl.phases.phase2.grid import ALL_PROTOCOLS, Condition
 
 # Packed data matches phase 1B; wd=0.3 so the late-grokking modulus (p=23
 # on the default full-overlap seed) still leaves the query-only basin.
-DEFAULT_TRAIN_FRAC = 0.8
-DEFAULT_WEIGHT_DECAY = 0.3
-DEFAULT_STEPS = 100_000
-DEFAULT_BATCH_SIZE = 8192
-DEFAULT_N_ALIASES = 16
+DEFAULT_TRAIN_FRAC = PHASE2.train_frac
+DEFAULT_WEIGHT_DECAY = PHASE2.weight_decay
+DEFAULT_STEPS = PHASE2.steps
+DEFAULT_BATCH_SIZE = PHASE2.batch_size
+DEFAULT_N_ALIASES = PHASE2.n_aliases
 
 CSV_FIELDS = [
     "protocol",
@@ -81,11 +82,11 @@ def add_shared_args(
         help="Query examples per step. Must be divisible by 8 (2 tasks x 4 ops).",
     )
     parser.add_argument("--n-aliases", type=int, default=DEFAULT_N_ALIASES)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr", type=float, default=MODEL.lr)
     if include_model_size:
-        parser.add_argument("--d-model", type=int, default=64)
-        parser.add_argument("--n-layers", type=int, default=3)
-    parser.add_argument("--n-heads", type=int, default=4)
+        parser.add_argument("--d-model", type=int, default=MODEL.d_model)
+        parser.add_argument("--n-layers", type=int, default=MODEL.n_layers)
+    parser.add_argument("--n-heads", type=int, default=MODEL.n_heads)
     parser.add_argument("--task-seeds", type=int, nargs="+", default=[0])
     parser.add_argument("--model-seeds", type=int, nargs="+", default=[0])
     parser.add_argument("--data-seed", type=int, default=0)

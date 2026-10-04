@@ -8,17 +8,10 @@ import time
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def stamp() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+from go4cl.utils.timefmt import stamp, utc_now
 
 
 def list_gpus() -> list[int]:
@@ -52,7 +45,7 @@ def ratios_from_train_frac(train_frac: float) -> tuple[float, float, float]:
 
 @dataclass(frozen=True)
 class TrainJob:
-    """One a_only training job on a fixed dataset directory."""
+    """One training job on a fixed dataset directory (any protocol)."""
 
     job_id: str
     data_dir: str
@@ -183,12 +176,15 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
     return result
 
 
+execute_train_job = execute_a_only_job
+
+
 def run_job_pool(
     jobs: list[TrainJob],
     *,
     gpus: list[int],
     workers_per_gpu: int = 1,
-    execute_fn: Callable[[TrainJob], dict[str, Any]] = execute_a_only_job,
+    execute_fn: Callable[[TrainJob], dict[str, Any]] = execute_train_job,
 ) -> list[dict[str, Any]]:
     workers_per_gpu = max(int(workers_per_gpu), 1)
     max_workers = len(gpus) * workers_per_gpu

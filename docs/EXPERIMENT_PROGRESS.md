@@ -125,3 +125,4 @@
 | 2026-10-04 | **TASK token 编辑**：`task_token_edit.py` → `*/task_token_edit/`。TASK_A→B 准确率不变；换成 digit 才偶发掉点（phase1 几乎不依赖 TASK 身份） |
 | 2026-10-04 | **1C 电路移植 / activation patching**：`scripts/phase1/circuit_transplant.py`。L0 换自己的操作数 residual → 预测跟 donor；L0 只移植 attn write 双崩；L2 MLP write 可跨 op（甚至跨模）被共享头读出。综述 `mechanisms/20261004_1b_132221/TRANSPLANT_COMPARISON.md` |
 | 2026-10-04 | **Unembedding 模 p Fourier**：`scripts/phase1/unembed_fourier.py`。头上行谱能量分散（top-1 仅 3–6%），消融几乎不掉点；与 digit-emb 主频常不对齐；L2 query 与 unembed cos≈1。1C 六个 + 1A 八模。综述 `mechanisms/20261004_1b_132221/UNEMBED_FOURIER.md` |
+| 2026-10-04 | **代码结构重构（R0–R6）**：`AnalysisContext` / `analysis.pipelines`；训练协议拆分；CLI 迁到 `cli.py`；默认值 `defaults.py`；见 [`ARCHITECTURE.md`](./ARCHITECTURE.md) |

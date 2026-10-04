@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from go4cl.data.residue_pairs import all_unordered_pairs
+from go4cl.defaults import SINGLE_OP
 from go4cl.phases.common import ratios_from_train_frac
 
 PHASE1A_GENERATION_RULE_FRAC = (
@@ -34,8 +35,8 @@ PHASE1A_GENERATION_RULE_FIXED = (
     "positions uniformly from 0..63 once per alias (no nuisance expansion)."
 )
 
-DEFAULT_BATCH_SIZE = 2048
-DEFAULT_N_TRAIN_PAIRS = 150
+DEFAULT_BATCH_SIZE = SINGLE_OP.batch_size
+DEFAULT_N_TRAIN_PAIRS = SINGLE_OP.n_train_pairs
 
 PHASE1B_GENERATION_RULE_PACKED = (
     "Phase 1B packed online train: residue-pair train/val/test splits per "
