@@ -1,7 +1,7 @@
 # Transformer 持续学习机理：总体实验计划
 
 > 执行进度见 [`EXPERIMENT_PROGRESS.md`](./EXPERIMENT_PROGRESS.md)；  
-> 各阶段步骤操作说明见 [`PHASE_STEP_GUIDE.md`](./PHASE_STEP_GUIDE.md)。
+> 代码与锁定协议见 [`ARCHITECTURE.md`](./ARCHITECTURE.md)。
 
 ## 1. 研究目标
 

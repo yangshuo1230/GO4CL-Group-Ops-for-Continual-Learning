@@ -1,7 +1,6 @@
 # Architecture
 
-One-page map of GO4CL after the structure refactor. Scientific protocol
-details stay in `RESEARCH_EXPERIMENT_PLAN.md` and `IMPLEMENTATION_NOTES.md`.
+One-page map of GO4CL after the structure refactor. Science plan: `RESEARCH_EXPERIMENT_PLAN.md`. Progress: `EXPERIMENT_PROGRESS.md`.
 
 ## Layers (allowed dependencies point downward)
 
@@ -52,3 +51,10 @@ Pipelines (also `go4cl analyze <name>`):
   `task-token-edit`, `unembed-fourier`
 
 `scripts/phase1/*.py` remain compatible wrappers around the same pipelines.
+
+## Locked protocol
+
+- Packed **val/test** primary metric is `packed_id`; disk splits are nuisance only.
+- Checkpoint on **val** macro-op accuracy (loss tie-break). Sequential keeps the optimizer.
+- 1B / phase 2 default `weight_decay=0.3`, `batch_size=8192`, `steps=100000`.
+- At `wd≥0.5`, p=23 can sit at \(\approx 1/23\) (query-only basin: head guesses uniformly, trunk stops reading operands). Same seed at `wd=0.3` groks all four ops by ~20k. Data/labels were intact; this is path-dependent, not a broken split.

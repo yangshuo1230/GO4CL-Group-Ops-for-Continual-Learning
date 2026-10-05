@@ -84,7 +84,7 @@ class StableEventDetector:
 
 
 def default_event_detectors() -> dict[str, StableEventDetector]:
-    """Canonical Phase-1 event detectors (see docs/REFACTOR_R1_SPEC.md)."""
+    """Canonical Phase-1 event detectors (t_mem / t_gen / t_iid)."""
     return {
         "t_mem": StableEventDetector("t_mem", threshold=0.99, window=5),
         "t_gen": StableEventDetector("t_gen", threshold=0.90, window=5),

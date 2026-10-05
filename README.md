@@ -2,11 +2,9 @@
 
 Transformer continual-learning experiments on structured modular-addition tasks.
 
-- [`docs/RESEARCH_EXPERIMENT_PLAN.md`](docs/RESEARCH_EXPERIMENT_PLAN.md) — overall science plan
-- [`docs/EXPERIMENT_PROGRESS.md`](docs/EXPERIMENT_PROGRESS.md) — **progress table**
-- [`docs/PHASE_STEP_GUIDE.md`](docs/PHASE_STEP_GUIDE.md) — what each step does
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — code layout and data/train/analysis flow
-- [`docs/IMPLEMENTATION_NOTES.md`](docs/IMPLEMENTATION_NOTES.md) — locked protocol details
+- [`docs/RESEARCH_EXPERIMENT_PLAN.md`](docs/RESEARCH_EXPERIMENT_PLAN.md) — science plan
+- [`docs/EXPERIMENT_PROGRESS.md`](docs/EXPERIMENT_PROGRESS.md) — progress and changelog
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — code layout and locked protocol
 
 ## Setup
 

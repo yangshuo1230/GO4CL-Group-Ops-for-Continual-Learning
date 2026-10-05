@@ -1,7 +1,7 @@
 # 实验进度表
 
 对照总计划 [`RESEARCH_EXPERIMENT_PLAN.md`](./RESEARCH_EXPERIMENT_PLAN.md)。  
-各步骤含义见 [`PHASE_STEP_GUIDE.md`](./PHASE_STEP_GUIDE.md)。
+代码与锁定协议见 [`ARCHITECTURE.md`](./ARCHITECTURE.md)。 CLI 列即各步入口。
 
 **状态约定：** `未开始` · `进行中` · `已完成` · `阻塞` · `跳过`
 
@@ -53,7 +53,7 @@
 
 | ID | 步骤 | CLI | 产物目录 | 状态 | 锁定配置 / 结论摘要 | 日期 |
 |----|------|-----|----------|------|---------------------|------|
-| 2A | 训练协议对照 | `go4cl phase2 protocols` | `runs/phase2/protocols/` | 进行中 | 默认 `wd=0.3/bs=8192/steps=100k` packed，全重叠。p=23 在 `wd≥0.5` 易 query-only 盆地，见 IMPLEMENTATION_NOTES | 2026-10-04 |
+| 2A | 训练协议对照 | `go4cl phase2 protocols` | `runs/phase2/protocols/` | 进行中 | 默认 `wd=0.3/bs=8192/steps=100k` packed，全重叠。p=23 在 `wd≥0.5` 易 query-only 盆地，见 [`ARCHITECTURE.md`](./ARCHITECTURE.md) | 2026-10-04 |
 | 2B | 任务关系矩阵（8 → 27） | `go4cl phase2 relation-matrix` | `runs/phase2/relation_matrix/` | 进行中 | 试点 [`20261005_112940/`](../runs/phase2/relation_matrix/20261005_112940/)：`s0.5_o0.5_m1` × 四协议 × 1 seed。joint A/B test≈0.986；sequential B≈0.98、A 遗忘 0.978。默认 extreme 8 格尚未铺开 | 2026-10-05 |
 | 2C | 全程行为指标（非独立入口） | 随 2A/2B 记录 | 同上 | 进行中 | eval history → forgetting / jump / exposure AUC / transfer CSV。该格事后 digit/unembed Fourier：[`FOURIER_POSTHOC.md`](../runs/phase2/relation_matrix/20261005_112940/FOURIER_POSTHOC.md) | 2026-10-05 |
 | 2D | 容量消融 | `go4cl phase2 capacity` | `runs/phase2/capacity/` | 进行中 | 六种代表关系 × \{32,64,128\} × \{2,3,4\}。实验未跑 | 2026-10-04 |
@@ -108,7 +108,7 @@
 | 2026-10-02 | **1A-mech 跨模数复现**：对 \(\mathcal P\) 八模数跑完整 mech（final+best，同 `223737` ckpt）；p=31 五条结论在 final 上 8/8（top-1 频率崩塌 7/8，p=37 仍大跌至 0.59）。见 `mech_single/20261002_cross/` |
 | 2026-10-02 | **1C MVP**：`phase1 mechanisms` 对 multi-op 按 op 做 composition/attention/Fourier，并测跨模频率消融选择性。默认分析 concat-1B `four_diff`[47,43,37,23] best；结论：非独立 L0 复制电路，频率特征共享/串扰。`runs/phase1/mechanisms/20261002_four_diff_47433723/` |
 | 2026-10-02 | **暂换模数**：\(\mathcal P\) 中 \(19\to 53\)；近邻对改为 \((23,29),(31,37),(41,43),(47,53)\)；输出头 **53 类**。原因：packed 1B 中 four_diff 仍难训好 p=19 |
-| 2026-10-02 | **R1 协议修复**（数值以当前 53 类为准）：OperationKey / packed_id+nuisance eval / macro checkpoint / analysis dataset / steering 分 split / sampler_seed；见 `docs/REFACTOR_R1_SPEC.md`、`docs/IMPLEMENTATION_NOTES.md`。目录搬家与 Phase2 optimizer 推迟 |
+| 2026-10-02 | **R1 协议修复**（数值以当前 53 类为准）：OperationKey / packed_id+nuisance eval / macro checkpoint / analysis dataset / steering 分 split / sampler_seed。目录搬家与 Phase2 optimizer 推迟 |
 | 2026-10-02 | **R1+ 补齐可改项**：packed_id 接进 `_task_loaders` 主评；t_mem/t_gen/t_iid + `first_stable_threshold.pt`；`train_segment(preserve)`；Fourier random/norm-matched/magnitude 对照；CSV DictWriter；RESEARCH §2.2/2.3 对齐。**仍差实验重跑**（见出门条件） |
 | 2026-10-02 | **1B 默认变体去掉 `one`**：改为 `all_same four_diff pair_same`（均为 4 query，每步 packs 对齐）。`one` 仅作遗留可选 |
 | 2026-10-04 | **1B 网格** `multi_op/20261003_132221`：`all_same/four_diff/pair_same` × ts0/ts1 全部 held-out≈1.0（best） |
@@ -117,7 +117,7 @@
 | 2026-10-04 | **阶段二默认步数**改为 `50000`（2A/2B/2D 共用；joint / interleaved 总步数为 `2×50000`） |
 | 2026-10-04 | **阶段二默认步数**改回 `100000`（joint / interleaved 总步数为 `2×100000`） |
 | 2026-10-04 | **阶段二默认 wd** 改为 `0.3`（2A/2B/2D 共用）。`0.5/0.8` 下全重叠 seed0 的 p=23 易停在不看操作数的解；`0.3` 约 20k 步即可 grok |
-| 2026-10-04 | **p=23 query-only 盆地**：数据/标签无误。卡住时 iid=train=val≈1/23；init 时 p=23 梯度最大；他 op grok 后 query 对操作数注意力仍≈0.18，\(\lVert\partial L/\partial\mathrm{emb}\rVert\approx 0\)，p=23 占总梯度约 0.4%。`wd=0.3` 于 ~20k 四 op 全 grok。记录见 `IMPLEMENTATION_NOTES` Phase 2 |
+| 2026-10-04 | **p=23 query-only 盆地**：数据/标签无误。卡住时 iid=train=val≈1/23；init 时 p=23 梯度最大；他 op grok 后 query 对操作数注意力仍≈0.18，\(\lVert\partial L/\partial\mathrm{emb}\rVert\approx 0\)，p=23 占总梯度约 0.4%。`wd=0.3` 于 ~20k 四 op 全 grok。锁定协议见 [`ARCHITECTURE.md`](./ARCHITECTURE.md) |
 | 2026-10-04 | **1B 锁定 wd** 改为 `0.3`（与阶段二对齐；旧 1B 网格仍为 `wd=0.5`） |
 | 2026-10-04 | **逐任务详细因果消融**：`scripts/phase1/causal_detail.py` → 各 variant `causal_detail/`（head/组件/Fourier k=1..6 + 跨 op 矩阵）。同模 head 共享、异模 head 部分分工 |
 | 2026-10-04 | **多操作 residual steering**：`scripts/phase1/multi_op_steering.py` → 各 variant `steering/`。L1/L2 定向改预测≈1.0（shuf 对照低）；同模跨 op 可移植方向；个别异模 op（如 p29）要到 L2 才可 steer |
@@ -129,3 +129,4 @@
 | 2026-10-04 | **1B 多种子暂通过** `multi_op/20261004_170554`：`wd=0.3` packed，all_same/pair_same/four_diff × ts0–2 × ms0–2。同模促进成立；four_diff 1/9（ts0/ms0）p=23/29 未 grok。阶段一门关闭，进阶段二 |
 | 2026-10-05 | **2B 试点** `relation_matrix/20261005_112940`：`s0.5_o0.5_m1`，`null-task-ratio=0.15`，四协议全 ok。joint 双任务 ≈0.986；sequential A→B 遗忘 A（test 0.022），B 5k 达泛化 |
 | 2026-10-05 | **事后 Fourier**（该 stamp 的 digit-emb / unembed，非训练中记录）：顺序学 B 后 digit 主频四模数均不变，谱余弦 0.80–0.97；不像 b_only。unembed 仍分散；\(p=41,53\) 头主峰对齐 b_only。见 [`FOURIER_POSTHOC.md`](../runs/phase2/relation_matrix/20261005_112940/FOURIER_POSTHOC.md) |
+| 2026-10-05 | **docs 精简**：只留计划 / 进度 / 结构三份。删除步骤指南、R1 施工单、重构基线；协议锁定与 p=23 盆地并入 [`ARCHITECTURE.md`](./ARCHITECTURE.md) |
