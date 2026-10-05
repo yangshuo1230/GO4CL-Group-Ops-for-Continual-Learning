@@ -130,3 +130,4 @@
 | 2026-10-05 | **2B 试点** `relation_matrix/20261005_112940`：`s0.5_o0.5_m1`，`null-task-ratio=0.15`，四协议全 ok。joint 双任务 ≈0.986；sequential A→B 遗忘 A（test 0.022），B 5k 达泛化 |
 | 2026-10-05 | **事后 Fourier**（该 stamp 的 digit-emb / unembed，非训练中记录）：顺序学 B 后 digit 主频四模数均不变，谱余弦 0.80–0.97；不像 b_only。unembed 仍分散；\(p=41,53\) 头主峰对齐 b_only。见 [`FOURIER_POSTHOC.md`](../runs/phase2/relation_matrix/20261005_112940/FOURIER_POSTHOC.md) |
 | 2026-10-05 | **docs 精简**：只留计划 / 进度 / 结构三份。删除步骤指南、R1 施工单、重构基线；协议锁定与 p=23 盆地并入 [`ARCHITECTURE.md`](./ARCHITECTURE.md) |
+| 2026-10-05 | **sequential 切 B 前 vs 训完 B**：digit-emb 对 **B 的模数** 做 Fourier（`theta_A` vs `final`）。切前已尖；主频与训完 B 一致 72/108。见 `relation_matrix/20261004_202208/fourier_B_after_A_vs_after_B.csv` |
