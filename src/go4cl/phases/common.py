@@ -70,6 +70,9 @@ class TrainJob:
     activation: str = "relu"
     n_heads: int = 4
     eval_n_per_operation: int = 256
+    null_task_tokens: bool = False
+    null_task_ratio: float = 0.25
+    null_task_label: int = 0
 
 
 def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
@@ -120,6 +123,9 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
             eval_every=eval_every,
             ckpt_every=max(job.steps // 5, eval_every),
             device=device,
+            null_task_tokens=bool(job.null_task_tokens),
+            null_task_ratio=float(job.null_task_ratio),
+            null_task_label=int(job.null_task_label),
         )
         proto = run_protocol(
             job.protocol,  # type: ignore[arg-type]
@@ -148,6 +154,9 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
                 "batch_size": int(job.batch_size),
                 "train_replacement": True,
                 "full_batch": False,
+                "null_task_tokens": bool(job.null_task_tokens),
+                "null_task_ratio": float(job.null_task_ratio),
+                "null_task_label": int(job.null_task_label),
                 "wandb_group": job.wandb_group,
                 "gpu": job.gpu,
                 "sampler_seed": (

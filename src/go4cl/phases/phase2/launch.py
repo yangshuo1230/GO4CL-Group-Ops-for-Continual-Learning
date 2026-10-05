@@ -118,6 +118,24 @@ def add_shared_args(
         choices=["online", "offline", "disabled"],
     )
     parser.add_argument(
+        "--null-task-tokens",
+        action="store_true",
+        help="Mix TASK-slot reject rows (label --null-task-label). "
+        "A-phase includes TASK_B; B-phase and joint use neither-A-nor-B only.",
+    )
+    parser.add_argument(
+        "--null-task-ratio",
+        type=float,
+        default=0.25,
+        help="Extra reject rows as a fraction of the real train batch (added, not replacing).",
+    )
+    parser.add_argument(
+        "--null-task-label",
+        type=int,
+        default=0,
+        help="Fixed class for reject TASK-slot rows.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Write datasets and the job list, then exit before training.",
@@ -320,6 +338,9 @@ def launch_grid(
     train_frac = float(args.train_frac)
     weight_decay = float(args.weight_decay)
     steps = int(args.steps)
+    null_task_tokens = bool(getattr(args, "null_task_tokens", False))
+    null_task_ratio = float(getattr(args, "null_task_ratio", 0.25))
+    null_task_label = int(getattr(args, "null_task_label", 0))
 
     print(f"[phase2/{step}] out={out_root}")
     print(
@@ -330,7 +351,7 @@ def launch_grid(
     print(
         f"[phase2/{step}] cfg: train_frac={train_frac} wd={weight_decay} "
         f"steps={steps} batch_size={batch_size} aliases={args.n_aliases} "
-        f"switch_on={args.switch_on}"
+        f"switch_on={args.switch_on} null_task_tokens={null_task_tokens}"
     )
 
     metas: list[dict[str, Any]] = []
@@ -368,6 +389,8 @@ def launch_grid(
                                 f"_d{d_model}_L{n_layers}"
                                 f"_wd{weight_decay:g}_steps{steps}"
                             )
+                            if null_task_tokens:
+                                job_id += f"_null{null_task_label:g}_r{null_task_ratio:g}"
                             jobs.append(
                                 TrainJob(
                                     job_id=job_id,
@@ -413,12 +436,18 @@ def launch_grid(
                                         "pair_id": meta["pair_id"],
                                         "dataset_hash": meta["dataset_hash"],
                                         "train_mode": "packed_online",
+                                        "null_task_tokens": null_task_tokens,
+                                        "null_task_ratio": null_task_ratio,
+                                        "null_task_label": null_task_label,
                                     },
                                     batch_size=batch_size,
                                     protocol=protocol,
                                     include_test=True,
                                     switch_on=str(args.switch_on),
                                     n_heads=int(args.n_heads),
+                                    null_task_tokens=null_task_tokens,
+                                    null_task_ratio=null_task_ratio,
+                                    null_task_label=null_task_label,
                                 )
                             )
 

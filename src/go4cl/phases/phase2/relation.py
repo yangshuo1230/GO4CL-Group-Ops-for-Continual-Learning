@@ -5,15 +5,19 @@ from __future__ import annotations
 import argparse
 
 from go4cl.phases.common import stamp
-from go4cl.phases.phase2.grid import RELATION_PROTOCOLS, rho_grid
+from go4cl.phases.phase2.grid import RELATION_PROTOCOLS, conditions_by_name, rho_grid
 from go4cl.phases.phase2.launch import add_shared_args, launch_grid
 
 
 def run_relation_matrix(args: argparse.Namespace) -> None:
+    if args.conditions:
+        cells = conditions_by_name(list(args.conditions))
+    else:
+        cells = rho_grid(args.grid)
     launch_grid(
         args,
         step="relation-matrix",
-        conditions=rho_grid(args.grid),
+        conditions=cells,
         protocols=list(args.protocols),
         sizes=[(int(args.d_model), int(args.n_layers))],
     )
@@ -34,4 +38,12 @@ def add_relation_matrix_args(parser: argparse.ArgumentParser) -> None:
         nargs="+",
         default=list(RELATION_PROTOCOLS),
         help="Default compares a/b-only, joint, and both sequential orders.",
+    )
+    parser.add_argument(
+        "--conditions",
+        type=str,
+        nargs="+",
+        default=None,
+        help="Optional cell names from the 27-grid (e.g. s0.5_o0.5_m1). "
+        "Overrides --grid when set.",
     )

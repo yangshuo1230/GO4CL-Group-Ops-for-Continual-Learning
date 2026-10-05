@@ -92,6 +92,25 @@ def run_protocol(
     )
     packed_a = getattr(loaders["A"]["train"], "n_packs", None)
     packed_b = getattr(loaders["B"]["train"], "n_packs", None)
+    if train_cfg.null_task_tokens:
+        from go4cl.data.null_task import wrap_null_task_loader
+
+        loaders["A"]["train"] = wrap_null_task_loader(
+            loaders["A"]["train"],
+            phase="a",
+            ratio=float(train_cfg.null_task_ratio),
+            label=int(train_cfg.null_task_label),
+            seed=resolved_sampler_seed + 901,
+            enabled=True,
+        )
+        loaders["B"]["train"] = wrap_null_task_loader(
+            loaders["B"]["train"],
+            phase="b",
+            ratio=float(train_cfg.null_task_ratio),
+            label=int(train_cfg.null_task_label),
+            seed=resolved_sampler_seed + 902,
+            enabled=True,
+        )
     effective_bs = {
         "A_train": loaders["A"]["train"].batch_size,
         "B_train": loaders["B"]["train"].batch_size,
@@ -123,6 +142,9 @@ def run_protocol(
             "effective_batch": effective_bs,
             "eval_every": train_cfg.eval_every,
             "device": train_cfg.device,
+            "null_task_tokens": bool(train_cfg.null_task_tokens),
+            "null_task_ratio": float(train_cfg.null_task_ratio),
+            "null_task_label": int(train_cfg.null_task_label),
         },
         **(wandb_config or {}),
     }

@@ -48,6 +48,11 @@ class TrainConfig:
     ckpt_every: int = 500
     grad_clip: float | None = 1.0
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    # Off by default. When set, train loaders mix TASK-slot reject rows
+    # (see go4cl.data.null_task). Eval is unchanged; no A replay on phase B.
+    null_task_tokens: bool = False
+    null_task_ratio: float = 0.25
+    null_task_label: int = 0
 
 
 @dataclass

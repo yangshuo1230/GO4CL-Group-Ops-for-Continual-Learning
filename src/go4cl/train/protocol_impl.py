@@ -56,6 +56,17 @@ def run_joint(session: ProtocolSession) -> None:
         joint_loader = make_balanced_joint_loader(
             ds_a, ds_b, batch_size=session.train_cfg.batch_size
         )
+    if session.train_cfg.null_task_tokens:
+        from go4cl.data.null_task import wrap_null_task_loader
+
+        joint_loader = wrap_null_task_loader(
+            joint_loader,
+            phase="joint",
+            ratio=float(session.train_cfg.null_task_ratio),
+            label=int(session.train_cfg.null_task_label),
+            seed=session.resolved_sampler_seed + 903,
+            enabled=True,
+        )
     cfg = TrainConfig(**{**session.train_cfg.__dict__, "max_steps": 2 * session.steps})
     state = train_steps(
         session.model,

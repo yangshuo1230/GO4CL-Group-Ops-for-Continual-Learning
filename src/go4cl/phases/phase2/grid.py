@@ -72,3 +72,14 @@ def rho_grid(which: str) -> list[Condition]:
                     )
                 )
     return cells
+
+
+def conditions_by_name(names: list[str]) -> list[Condition]:
+    """Select named cells from the full 27-grid (e.g. ``s0.5_o0.5_m1``)."""
+    lookup = {cell.name: cell for cell in rho_grid("full")}
+    missing = [name for name in names if name not in lookup]
+    if missing:
+        raise SystemExit(
+            f"unknown condition(s) {missing}; expected names like s0.5_o0.5_m1"
+        )
+    return [lookup[name] for name in names]
