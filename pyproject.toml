@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Transformer continual learning on modular-addition tasks (circuit reuse / forgetting)."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
+# GPU stack: torch 2.6.0+cu124 (CUDA 12.4) + matching triton 3.2.
+# setuptools is a runtime import of triton (kernel compile), not only a build dep.
 dependencies = [
     "einops>=0.8.2",
     "matplotlib>=3.11.2",
@@ -42,6 +44,9 @@ url = "https://pypi.org/simple"
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu124" }
+# Triton wheels are on PyPI; do not pull them from the cu124 index.
+triton = { index = "pypi" }
+setuptools = { index = "pypi" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

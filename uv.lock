@@ -254,10 +254,10 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.11.2" },
     { name = "numpy", specifier = ">=2.4.6" },
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "setuptools", specifier = ">=70" },
+    { name = "setuptools", specifier = ">=70", index = "https://pypi.org/simple" },
     { name = "torch", specifier = "==2.6.0+cu124", index = "https://download.pytorch.org/whl/cu124" },
     { name = "tqdm", specifier = ">=4.70.1" },
-    { name = "triton", specifier = "==3.2.0" },
+    { name = "triton", specifier = "==3.2.0", index = "https://pypi.org/simple" },
     { name = "wandb", specifier = ">=0.30.0" },
 ]
 

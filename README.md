@@ -10,11 +10,25 @@ Transformer continual-learning experiments on structured modular-addition tasks.
 
 ## Setup
 
+Requires **Python 3.11** (see `.python-version`) and a **CUDA 12.4** driver/runtime.
+
+Pinned GPU stack (also listed in `pyproject.toml`):
+
+| Package | Version | Notes |
+|---------|---------|--------|
+| `torch` | `2.6.0+cu124` | from the PyTorch cu124 wheel index |
+| `triton` | `3.2.0` | required by CUDA torch; wheels from PyPI |
+| `setuptools` | `>=70` | **runtime** import of Triton (not just a build tool) |
+
 ```bash
+# install uv if needed: curl -LsSf https://astral.sh/uv/install.sh | sh
 cd GO4CL-Group-Ops-for-Continual-Learning
 uv sync
+uv run python -c "import torch, triton; print(torch.__version__, triton.__version__, torch.cuda.is_available())"
 uv run wandb login
 ```
+
+If `import triton` raises `ModuleNotFoundError: setuptools`, the venv is stale — run `uv sync` again.
 
 Scratch files go under **`.tmp/`** and workspace **`.cache/uv`**. `uv run go4cl …`
 and `scripts/phase1/*.sh` set this automatically.
