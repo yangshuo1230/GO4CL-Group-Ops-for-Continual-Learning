@@ -45,7 +45,7 @@ At `wd=0.5` / `0.8`, A-only or B-only can sit at train/iid/val/test \(\approx 1/
 
 **Lock:** 1B and phase 2 default `weight_decay=0.3`. Old 1B grid `multi_op/20261003_132221` remains `wd=0.5`.
 
-Full 2A/2B/2D grids have not been trained.
+Full 2A/2B/2D grids have not been trained. Pilot 2B cell `relation_matrix/20261005_112940` (`s0.5_o0.5_m1`, four protocols) succeeded; post-hoc Fourier notes in that stamp’s `FOURIER_POSTHOC.md`.
 
 ## Still deferred（需实验时间 / 大重构）
 

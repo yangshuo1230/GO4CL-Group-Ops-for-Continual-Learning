@@ -5,7 +5,7 @@
 
 **状态约定：** `未开始` · `进行中` · `已完成` · `阻塞` · `跳过`
 
-最后更新：2026-10-04
+最后更新：2026-10-05
 
 ---
 
@@ -54,14 +54,14 @@
 | ID | 步骤 | CLI | 产物目录 | 状态 | 锁定配置 / 结论摘要 | 日期 |
 |----|------|-----|----------|------|---------------------|------|
 | 2A | 训练协议对照 | `go4cl phase2 protocols` | `runs/phase2/protocols/` | 进行中 | 默认 `wd=0.3/bs=8192/steps=100k` packed，全重叠。p=23 在 `wd≥0.5` 易 query-only 盆地，见 IMPLEMENTATION_NOTES | 2026-10-04 |
-| 2B | 任务关系矩阵（8 → 27） | `go4cl phase2 relation-matrix` | `runs/phase2/relation_matrix/` | 进行中 | 默认 extreme 8 格；`--grid full` 为 27。实验未跑 | 2026-10-04 |
-| 2C | 全程行为指标（非独立入口） | 随 2A/2B 记录 | 同上 | 进行中 | eval history → forgetting / jump / exposure AUC / transfer CSV。Fourier 先于行为下降留阶段三 | 2026-10-04 |
+| 2B | 任务关系矩阵（8 → 27） | `go4cl phase2 relation-matrix` | `runs/phase2/relation_matrix/` | 进行中 | 试点 [`20261005_112940/`](../runs/phase2/relation_matrix/20261005_112940/)：`s0.5_o0.5_m1` × 四协议 × 1 seed。joint A/B test≈0.986；sequential B≈0.98、A 遗忘 0.978。默认 extreme 8 格尚未铺开 | 2026-10-05 |
+| 2C | 全程行为指标（非独立入口） | 随 2A/2B 记录 | 同上 | 进行中 | eval history → forgetting / jump / exposure AUC / transfer CSV。该格事后 digit/unembed Fourier：[`FOURIER_POSTHOC.md`](../runs/phase2/relation_matrix/20261005_112940/FOURIER_POSTHOC.md) | 2026-10-05 |
 | 2D | 容量消融 | `go4cl phase2 capacity` | `runs/phase2/capacity/` | 进行中 | 六种代表关系 × \{32,64,128\} × \{2,3,4\}。实验未跑 | 2026-10-04 |
 
 **阶段二出门条件（进入阶段三前须满足）：**
 
-- [ ] Joint 能同时解决 A、B（兼容解存在）
-- [ ] Sequential 中 B 能学会；A 是否遗忘作为结果记录
+- [x] Joint 能同时解决 A、B（兼容解存在）— 试点格 `s0.5_o0.5_m1` seed0
+- [x] Sequential 中 B 能学会；A 是否遗忘作为结果记录 — 同格：B 学会、A 几乎忘光
 - [ ] 已选出阶段三要解释的代表性条件
 
 ---
@@ -127,3 +127,5 @@
 | 2026-10-04 | **Unembedding 模 p Fourier**：`scripts/phase1/unembed_fourier.py`。头上行谱能量分散（top-1 仅 3–6%），消融几乎不掉点；与 digit-emb 主频常不对齐；L2 query 与 unembed cos≈1。1C 六个 + 1A 八模。综述 `mechanisms/20261004_1b_132221/UNEMBED_FOURIER.md` |
 | 2026-10-04 | **代码结构重构（R0–R6）**：`AnalysisContext` / `analysis.pipelines`；训练协议拆分；CLI 迁到 `cli.py`；默认值 `defaults.py`；见 [`ARCHITECTURE.md`](./ARCHITECTURE.md) |
 | 2026-10-04 | **1B 多种子暂通过** `multi_op/20261004_170554`：`wd=0.3` packed，all_same/pair_same/four_diff × ts0–2 × ms0–2。同模促进成立；four_diff 1/9（ts0/ms0）p=23/29 未 grok。阶段一门关闭，进阶段二 |
+| 2026-10-05 | **2B 试点** `relation_matrix/20261005_112940`：`s0.5_o0.5_m1`，`null-task-ratio=0.15`，四协议全 ok。joint 双任务 ≈0.986；sequential A→B 遗忘 A（test 0.022），B 5k 达泛化 |
+| 2026-10-05 | **事后 Fourier**（该 stamp 的 digit-emb / unembed，非训练中记录）：顺序学 B 后 digit 主频四模数均不变，谱余弦 0.80–0.97；不像 b_only。unembed 仍分散；\(p=41,53\) 头主峰对齐 b_only。见 [`FOURIER_POSTHOC.md`](../runs/phase2/relation_matrix/20261005_112940/FOURIER_POSTHOC.md) |
