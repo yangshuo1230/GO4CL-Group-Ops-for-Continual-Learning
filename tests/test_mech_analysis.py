@@ -198,6 +198,7 @@ def test_fourier_ablation_sweep_curves() -> None:
         device=torch.device("cpu"),
         top_k=1,
         sweep_ks=[1, 2],
+        n_subspace_seeds=2,
     )
     assert out["sweep_ks"] == [1, 2]
     assert len(out["important_curve"]) == 2
@@ -205,6 +206,10 @@ def test_fourier_ablation_sweep_curves() -> None:
     assert out["important_curve"][0]["k"] == 1
     assert "delta_acc" in out["important_curve"][0]
     assert "delta_acc" in out["unimportant_curve"][0]
+    assert len(out["random_subspace_curve"]) == 2
+    assert all(0.0 <= c["acc"] <= 1.0 for c in out["random_subspace_curve"])
+    assert out["random_subspace_curve"][0]["k"] == 1
+    assert "embedding_delta_frobenius_norm" in out["random_subspace_curve"][0]
     # Full ablation of all non-DC pairs should be k=n_pairs=3; k=2 still valid
     assert all(0.0 <= c["acc"] <= 1.0 for c in out["important_curve"])
 

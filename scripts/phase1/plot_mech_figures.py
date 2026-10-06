@@ -182,6 +182,7 @@ def plot_ablation(stamp: Path, out: Path, *, ckpt: str = "final") -> Path:
     rows = _load_abl_rows(stamp)
     imp: dict[int, float] = {}
     unimp: dict[int, float] = {}
+    rand: dict[int, float] = {}
     base = 1.0
     for r in rows:
         if r["ckpt"] != ckpt:
@@ -190,10 +191,12 @@ def plot_ablation(stamp: Path, out: Path, *, ckpt: str = "final") -> Path:
         base = float(r["baseline_acc"])
         if r["kind"] == "important":
             imp[k] = float(r["acc"])
-        else:
+        elif r["kind"] == "unimportant":
             unimp[k] = float(r["acc"])
+        elif r["kind"] == "random_subspace":
+            rand[k] = float(r["acc"])
     ks = sorted(imp)
-    fig, ax = plt.subplots(figsize=(6.2, 3.5))
+    fig, ax = plt.subplots(figsize=(6.4, 3.5))
     ax.plot(
         ks,
         [imp[k] for k in ks],
@@ -212,12 +215,23 @@ def plot_ablation(stamp: Path, out: Path, *, ckpt: str = "final") -> Path:
         ms=4.5,
         label="ablate bottom-$k$ (unimportant)",
     )
+    if rand:
+        rks = sorted(rand)
+        ax.plot(
+            rks,
+            [rand[k] for k in rks],
+            "s--",
+            color="#59A14F",
+            lw=1.8,
+            ms=4.5,
+            label=r"random subspace ($\Vert\Delta W\Vert_F$ matched)",
+        )
     ax.axhline(base, color="0.4", ls="--", lw=1, label="baseline")
     ax.axhline(1 / 31, color="0.5", ls=":", lw=1, label="chance")
     ax.set_xlabel(r"# conjugate freq-pairs removed ($k$)")
     ax.set_ylabel("test accuracy")
     ax.set_title(rf"Digit-emb Fourier ablation · $p=31$ {ckpt}")
-    ax.legend(frameon=False, loc="center right")
+    ax.legend(frameon=False, loc="center right", fontsize=8)
     ax.set_ylim(-0.02, 1.08)
     ax.set_xlim(0.5, max(ks) + 0.5)
     fig.tight_layout()
@@ -270,7 +284,7 @@ def plot_head_knockout(stamp: Path, out: Path, *, ckpt: str = "final") -> Path:
 
 
 def plot_attention_from_report(stamp: Path, out: Path, *, ckpt: str = "final") -> Path | None:
-    """Bar chart of L0 operand routing from report attention summary + knockout Δ."""
+    """Two-row L0 head panel: operand attention (top) and knockout acc drop (bottom)."""
     report_path = stamp / f"p31_{ckpt}_report.json"
     if not report_path.is_file():
         return None
@@ -298,22 +312,29 @@ def plot_attention_from_report(stamp: Path, out: Path, *, ckpt: str = "final") -
                 deltas[h] = float(r["value"])
 
     n_heads = len(masses)
-    # Report only gives combined operand mass; split is not in summary.
-    # Plot total operand mass per head + delta annotation.
-    fig, ax = plt.subplots(figsize=(6.0, 3.2))
+    drops = [(-deltas[h] if h in deltas else np.nan) for h in range(n_heads)]
     x = np.arange(n_heads)
-    ax.bar(x, masses, color="#4C78A8", label="operand mass (xi+xj)")
-    ax.set_xticks(list(x))
-    ax.set_xticklabels([f"H{h}" for h in range(n_heads)])
-    ax.set_ylabel("mean query attention on operands")
-    ax.set_title(rf"L0 head routing · $p=31$ {ckpt}  ($i={rep['operand_i']}, j={rep['operand_j']}$)")
-    ax.set_ylim(0, 1.15)
-    ax.legend(frameon=False, loc="lower right")
+    fig, (ax_att, ax_abl) = plt.subplots(
+        2, 1, figsize=(5.4, 4.8), sharex=True, layout="constrained"
+    )
+    ax_att.bar(x, masses, color="#4C78A8", width=0.72)
+    ax_att.set_ylabel("query attn on operands")
+    ax_att.set_ylim(0, 1.08)
+    ax_att.set_title(
+        rf"L0 heads · $p=31$ {ckpt}  ($i={rep['operand_i']}, j={rep['operand_j']}$)"
+    )
     for h, m in enumerate(masses):
-        d = deltas.get(h)
-        label = f"{m:.2f}" if d is None else f"{m:.2f}\nΔ={d:+.2f}"
-        ax.text(h, max(m, 0.02) + 0.03, label, ha="center", va="bottom", fontsize=8)
-    fig.tight_layout()
+        ax_att.text(h, m + 0.02, f"{m:.2f}", ha="center", va="bottom", fontsize=8)
+
+    ax_abl.bar(x, drops, color="#E45756", width=0.72)
+    ax_abl.set_ylabel(r"acc drop ($-\Delta$acc)")
+    ax_abl.set_xticks(list(x))
+    ax_abl.set_xticklabels([f"H{h}" for h in range(n_heads)])
+    ymax = max([d for d in drops if np.isfinite(d)] + [0.1])
+    ax_abl.set_ylim(0, ymax * 1.18)
+    for h, d in enumerate(drops):
+        if np.isfinite(d):
+            ax_abl.text(h, d + 0.015 * ymax, f"{d:.2f}", ha="center", va="bottom", fontsize=8)
     path = out / "fig5b_L0_head_routing.png"
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)

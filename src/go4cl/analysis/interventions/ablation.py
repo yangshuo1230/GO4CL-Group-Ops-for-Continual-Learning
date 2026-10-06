@@ -142,12 +142,16 @@ def fourier_ablation_on_embeddings(
     top_k: int = 2,
     max_batches: int | None = None,
     sweep_ks: list[int] | None = None,
+    n_subspace_seeds: int = 5,
 ) -> dict[str, Any]:
     """Ablate digit-embedding Fourier modes; sweep important vs unimportant counts.
 
     For each k in ``sweep_ks`` (default: 1..n_pairs):
       - important: remove the k highest-energy conjugate pairs
       - unimportant: remove the k lowest-energy conjugate pairs
+      - random_subspace: add a zero-mean Gaussian on digit rows whose
+        Frobenius norm matches the important ablation at that k
+        (``n_subspace_seeds`` draws, mean accuracy)
     and record test accuracy. Also keeps a single ``top_k`` snapshot for
     backward-compatible ``delta_acc`` summary.
     """
@@ -168,14 +172,40 @@ def fourier_ablation_on_embeddings(
 
     original = model.tok_emb.weight.data.clone()
 
-    def _eval_ablate(freq_list: list[int]) -> float:
-        ablated = project_out_freqs_from_digit_emb(
-            original, modulus=modulus, freqs=freq_list
-        ).to(device=original.device, dtype=original.dtype)
-        model.tok_emb.weight.data.copy_(ablated)
+    def _eval_weight(weight: torch.Tensor) -> float:
+        model.tok_emb.weight.data.copy_(
+            weight.to(device=original.device, dtype=original.dtype)
+        )
         acc = eval_accuracy(model, loader, device=device, max_batches=max_batches)
         model.tok_emb.weight.data.copy_(original)
         return acc
+
+    def _eval_ablate(freq_list: list[int]) -> float:
+        ablated = project_out_freqs_from_digit_emb(
+            original, modulus=modulus, freqs=freq_list
+        )
+        return _eval_weight(ablated)
+
+    def _digit_delta_frobenius(freq_list: list[int]) -> float:
+        ablated = project_out_freqs_from_digit_emb(
+            original, modulus=modulus, freqs=freq_list
+        )
+        delta = (ablated - original.detach().cpu()).float()
+        return float(torch.linalg.norm(delta[:NUM_DIGITS]).item())
+
+    def _eval_random_subspace(fro: float, *, seed: int) -> float:
+        """Zero-mean Gaussian on digit rows, scaled to ``fro`` (||ΔW||_F)."""
+        rng = np.random.default_rng(seed)
+        d = int(original.shape[1])
+        noise = torch.tensor(
+            rng.standard_normal((NUM_DIGITS, d)), dtype=torch.float32
+        )
+        noise = noise - noise.mean(dim=0, keepdim=True)
+        nrm = float(torch.linalg.norm(noise).item()) + 1e-12
+        noise = noise * (fro / nrm)
+        matched = original.detach().cpu().clone()
+        matched[:NUM_DIGITS] = matched[:NUM_DIGITS].float() + noise
+        return _eval_weight(matched)
 
     important_curve: list[dict[str, Any]] = []
     unimportant_curve: list[dict[str, Any]] = []
@@ -204,6 +234,29 @@ def fourier_ablation_on_embeddings(
                 "energy_sum": float(sum(p["energy"] for p in lo)),
                 "acc": lo_acc,
                 "delta_acc": float(lo_acc - baseline),
+            }
+        )
+
+    random_subspace_curve: list[dict[str, Any]] = []
+    n_seeds = max(int(n_subspace_seeds), 1)
+    for k in ks:
+        hi_freqs = [f for p in pairs[:k] for f in p["freqs"]]
+        fro = _digit_delta_frobenius(hi_freqs)
+        seed_accs = [
+            _eval_random_subspace(fro, seed=10_000 + 97 * k + s) for s in range(n_seeds)
+        ]
+        mean_acc = float(np.mean(seed_accs))
+        random_subspace_curve.append(
+            {
+                "k": k,
+                "freqs": [],
+                "reps": [],
+                "energy_sum": fro,
+                "acc": mean_acc,
+                "acc_std": float(np.std(seed_accs)),
+                "delta_acc": float(mean_acc - baseline),
+                "embedding_delta_frobenius_norm": fro,
+                "n_seeds": n_seeds,
             }
         )
 
@@ -250,24 +303,8 @@ def fourier_ablation_on_embeddings(
         # Norm-matched: apply top ablation, measure ΔW Frobenius, then add
         # a random zero-mean perturbation of matching Frobenius norm.
         top_freqs = list(ablated_freqs)
-        top_ablated = project_out_freqs_from_digit_emb(
-            original, modulus=modulus, freqs=top_freqs
-        )
-        delta_w = (top_ablated - original.detach().cpu()).float()
-        fro = float(torch.linalg.norm(delta_w[:NUM_DIGITS]).item())
-        noise = torch.randn_like(delta_w[:NUM_DIGITS])
-        noise = noise - noise.mean(dim=0, keepdim=True)
-        nrm = float(torch.linalg.norm(noise).item()) + 1e-12
-        noise = noise * (fro / nrm)
-        matched = original.detach().cpu().clone()
-        matched[:NUM_DIGITS] = matched[:NUM_DIGITS].float() + noise
-        model.tok_emb.weight.data.copy_(
-            matched.to(device=original.device, dtype=original.dtype)
-        )
-        matched_acc = eval_accuracy(
-            model, loader, device=device, max_batches=max_batches
-        )
-        model.tok_emb.weight.data.copy_(original)
+        fro = _digit_delta_frobenius(top_freqs)
+        matched_acc = _eval_random_subspace(fro, seed=0)
         controls["norm_matched_random_subspace"] = {
             "k": k0,
             "embedding_delta_frobenius_norm": fro,
@@ -306,6 +343,7 @@ def fourier_ablation_on_embeddings(
         "sweep_ks": ks,
         "important_curve": important_curve,
         "unimportant_curve": unimportant_curve,
+        "random_subspace_curve": random_subspace_curve,
         "controls": controls,
     }
 

@@ -5,7 +5,7 @@
 
 **状态约定：** `未开始` · `进行中` · `已完成` · `阻塞` · `跳过`
 
-最后更新：2026-10-05
+最后更新：2026-10-06
 
 ---
 
@@ -54,7 +54,7 @@
 | ID | 步骤 | CLI | 产物目录 | 状态 | 锁定配置 / 结论摘要 | 日期 |
 |----|------|-----|----------|------|---------------------|------|
 | 2A | 训练协议对照 | `go4cl phase2 protocols` | `runs/phase2/protocols/` | 进行中 | 默认 `wd=0.3/bs=8192/steps=100k` packed，全重叠。p=23 在 `wd≥0.5` 易 query-only 盆地，见 [`ARCHITECTURE.md`](./ARCHITECTURE.md) | 2026-10-04 |
-| 2B | 任务关系矩阵（8 → 27） | `go4cl phase2 relation-matrix` | `runs/phase2/relation_matrix/` | 进行中 | 试点 [`20261005_112940/`](../runs/phase2/relation_matrix/20261005_112940/)：`s0.5_o0.5_m1` × 四协议 × 1 seed。joint A/B test≈0.986；sequential B≈0.98、A 遗忘 0.978。默认 extreme 8 格尚未铺开 | 2026-10-05 |
+| 2B | 任务关系矩阵（8 → 27） | `go4cl phase2 relation-matrix` | `runs/phase2/relation_matrix/` | 进行中 | **无负样本全网格** [`20261004_202208/`](../runs/phase2/relation_matrix/20261004_202208/)：27×四协议=108/108 ok。joint 23/27 双任务≥0.9；sequential 仅 `s1_o1_m1` 双任务≥0.9，其余 B 会 grok、A 大多遗忘。**负样本** `--null-task-tokens --null-task-ratio 0.15`：他机试点 [`20261005_112940/`](../runs/phase2/relation_matrix/20261005_112940/) 一格四协议；本机全网格 [`20261005_154626/`](../runs/phase2/relation_matrix/20261005_154626/) 中途停，留 22/108 ok（见 2026-10-06 日志） | 2026-10-06 |
 | 2C | 全程行为指标（非独立入口） | 随 2A/2B 记录 | 同上 | 进行中 | eval history → forgetting / jump / exposure AUC / transfer CSV。该格事后 digit/unembed Fourier：[`FOURIER_POSTHOC.md`](../runs/phase2/relation_matrix/20261005_112940/FOURIER_POSTHOC.md) | 2026-10-05 |
 | 2D | 容量消融 | `go4cl phase2 capacity` | `runs/phase2/capacity/` | 进行中 | 六种代表关系 × \{32,64,128\} × \{2,3,4\}。实验未跑 | 2026-10-04 |
 
@@ -131,3 +131,5 @@
 | 2026-10-05 | **事后 Fourier**（该 stamp 的 digit-emb / unembed，非训练中记录）：顺序学 B 后 digit 主频四模数均不变，谱余弦 0.80–0.97；不像 b_only。unembed 仍分散；\(p=41,53\) 头主峰对齐 b_only。见 [`FOURIER_POSTHOC.md`](../runs/phase2/relation_matrix/20261005_112940/FOURIER_POSTHOC.md) |
 | 2026-10-05 | **docs 精简**：只留计划 / 进度 / 结构三份。删除步骤指南、R1 施工单、重构基线；协议锁定与 p=23 盆地并入 [`ARCHITECTURE.md`](./ARCHITECTURE.md) |
 | 2026-10-05 | **sequential 切 B 前 vs 训完 B**：digit-emb 对 **B 的模数** 做 Fourier（`theta_A` vs `final`）。切前已尖；主频与训完 B 一致 72/108。见 `relation_matrix/20261004_202208/fourier_B_after_A_vs_after_B.csv` |
+| 2026-10-06 | **负样本全网格中止** `relation_matrix/20261005_154626`：`--null-task-tokens --null-task-ratio 0.15`，计划 108 job，中途停。删 36 个无 `job_result` 的目录；**22 ok 保留**（a_only 10 / b_only 9 / joint 1 / sequential_ab 2）。对照无负样本 `20261004_202208`：a_only 仍 A≈1、B chance；joint `s0_o0.5_m1` 双任务 0.996/0.994（原 1.0/1.0）；sequential `s0_o0.5_m0.5`、`s0_o0_m1` 切 B 前 A≥0.99，结束后 A≈0.02、forget 0.96/0.98，B 仍≈1——**没有减轻遗忘**。唯一大差：`b_only s0_o0_m1` B 0.967→0.855（p=23 test 0.49，best 0.57；其余三模仍>0.94）。他机试点 `s0.5_o0.5_m1` 曾更差（顺序 A 0.267→0.022），该格本 stamp 未跑完 |
+| 2026-10-06 | **1A Fourier 消融加随机子空间对照**：与 top-\(k\) 相同 \(\lVert\Delta W\rVert_F\) 的 digit-emb 高斯扰动（5 seed）。p=31 final：\(k=1\) acc 0.83 vs 重要频率 0.16。图 `p31_summary/figures/fig3_fourier_ablation.png` |

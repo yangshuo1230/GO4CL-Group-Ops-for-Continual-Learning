@@ -74,6 +74,7 @@ def export_from_report(report: dict[str, Any], out: Path) -> None:
         for rank, curve_key in (
             ("important", "important_curve"),
             ("unimportant", "unimportant_curve"),
+            ("random_subspace", "random_subspace_curve"),
         ):
             for pt in abl.get(curve_key) or []:
                 fourier_rows.append(
@@ -267,6 +268,7 @@ def run_live(
         for rank, curve_key in (
             ("important", "important_curve"),
             ("unimportant", "unimportant_curve"),
+            ("random_subspace", "random_subspace_curve"),
         ):
             for pt in b["fourier"].get(curve_key) or []:
                 fourier_rows.append(

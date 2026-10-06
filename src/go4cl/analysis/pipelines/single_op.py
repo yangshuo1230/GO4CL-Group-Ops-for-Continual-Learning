@@ -227,6 +227,7 @@ def analyze_one(
         "ablated_freqs": ablation.get("ablated_freqs"),
         "ablation_important_curve": ablation.get("important_curve"),
         "ablation_unimportant_curve": ablation.get("unimportant_curve"),
+        "ablation_random_subspace_curve": ablation.get("random_subspace_curve"),
         "compose_layer_guess": (
             None if composition is None else composition.get("compose_layer_guess")
         ),
@@ -481,6 +482,7 @@ def run_mech_single(args: argparse.Namespace) -> None:
         for kind, curve in (
             ("important", abl.get("important_curve") or []),
             ("unimportant", abl.get("unimportant_curve") or []),
+            ("random_subspace", abl.get("random_subspace_curve") or []),
         ):
             for pt in curve:
                 abl_lines.append(
