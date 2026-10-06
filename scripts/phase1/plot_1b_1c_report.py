@@ -23,7 +23,7 @@ import matplotlib as mpl
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch, Rectangle
+from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -59,6 +59,11 @@ ACC_YLIM = (0.0, 1.02)
 DACC_YLIM = (-1.0, 0.1)
 NOTES: list[str] = []
 SKIPPED: list[str] = []
+RING = 1.0
+COLOR_DC = "#C4C7C5"
+COLOR_TOP = "#4C78A8"
+COLOR_OTHER = "#9AA0A6"
+COLOR_RING = "#E8EAED"
 
 
 def _style() -> None:
@@ -740,6 +745,118 @@ def fig_1c_3(bundles: dict[str, dict[str, Any]], *, ts: int, stem: Path) -> list
     return _save(fig, stem)
 
 
+def _digit_emb_ring_row(rec: dict[str, Any]) -> dict[str, Any]:
+    emb = rec.get("fourier_digit_emb") or {}
+    energy = np.asarray(emb.get("energy_by_freq") or [], dtype=np.float64)
+    total = float(emb.get("total_energy") or (energy.sum() if energy.size else 0.0))
+    return {
+        "latent_id": int(rec.get("latent_id", -1)),
+        "p": int(emb.get("modulus", rec.get("modulus", energy.size))),
+        "frac": energy / total if total > 0 else energy,
+        "top_freq": int(emb.get("top_freq", 0)),
+    }
+
+
+def _draw_digit_emb_ring(ax, row: dict[str, Any], *, tick_size: int = 7) -> None:
+    p = row["p"]
+    frac = row["frac"]
+    k_star = row["top_freq"]
+    conj = (p - k_star) % p
+    peak = float(max(frac.max() if frac.size else 0.0, 1e-9))
+    scale = 0.85 / peak
+    theta = 2 * np.pi * np.arange(p) / p
+    width = 2 * np.pi / p * 0.82
+    heights = frac * scale
+    colors = [
+        COLOR_DC if k == 0 else COLOR_TOP if k in {k_star, conj} else COLOR_OTHER
+        for k in range(p)
+    ]
+    ax.set_theta_offset(np.pi / 2)
+    ax.set_theta_direction(-1)
+    ax.set_facecolor("white")
+    ax.spines["polar"].set_visible(False)
+    ax.grid(False)
+    ax.set_yticklabels([])
+    ax.set_ylim(0, RING + 0.95)
+    ring_theta = np.linspace(0, 2 * np.pi, 512)
+    ax.fill_between(ring_theta, 0, RING, color=COLOR_RING, zorder=0)
+    ax.plot(ring_theta, np.full_like(ring_theta, RING), color="#BDC1C6", lw=1.0, zorder=1)
+    ax.bar(
+        theta,
+        heights,
+        width=width,
+        bottom=RING,
+        color=colors,
+        edgecolor="white",
+        linewidth=0.3,
+        align="center",
+        zorder=2,
+    )
+    tick_ks = sorted({0, k_star, conj})
+    ax.set_xticks([2 * np.pi * k / p for k in tick_ks])
+    ax.set_xticklabels([str(k) for k in tick_ks], fontsize=tick_size)
+    ax.tick_params(axis="x", pad=1)
+    ax.set_title(
+        rf"Q{row['latent_id']}  $p={p}$  $k^\star={k_star},{conj}$",
+        pad=10,
+        fontsize=10,
+    )
+
+
+def fig_1c_12(bundles: dict[str, dict[str, Any]], *, ts: int, stem: Path) -> list[Path]:
+    """Digit-embedding Fourier rings: one panel per packed query, rows = variants."""
+    fig, axes = plt.subplots(
+        3,
+        4,
+        figsize=(16.0, 11.0),
+        subplot_kw={"projection": "polar"},
+    )
+    for ri, var in enumerate(VARIANTS):
+        recs = sorted(
+            bundles[var]["report"].get("per_op") or [],
+            key=lambda r: int(r["latent_id"]),
+        )
+        if len(recs) != 4:
+            raise RuntimeError(f"{var} ts{ts}: expected 4 ops, got {len(recs)}")
+        for ax, rec in zip(axes[ri], recs, strict=True):
+            row = _digit_emb_ring_row(rec)
+            if row["frac"].size != row["p"]:
+                raise RuntimeError(
+                    f"{var} Q{row['latent_id']} ts{ts}: energy length "
+                    f"{row['frac'].size} != p={row['p']}"
+                )
+            _draw_digit_emb_ring(ax, row)
+        axes[ri, 0].annotate(
+            var,
+            xy=(-0.32, 0.5),
+            xycoords="axes fraction",
+            ha="center",
+            va="center",
+            rotation=90,
+            fontsize=11,
+            color=VAR_COLOR[var],
+            fontweight="bold",
+        )
+    fig.suptitle(
+        f"1C digit embedding Fourier  ·  ts{ts}  ·  bar height = energy / peak bin",
+        y=0.995,
+    )
+    fig.legend(
+        handles=[
+            Patch(facecolor=COLOR_TOP, label="top conjugate pair"),
+            Patch(facecolor=COLOR_OTHER, label="other $k$"),
+            Patch(facecolor=COLOR_DC, label=r"DC $k=0$"),
+        ],
+        loc="lower center",
+        ncol=3,
+        frameon=False,
+        bbox_to_anchor=(0.5, -0.02),
+        fontsize=9,
+    )
+    fig.tight_layout(rect=(0.04, 0.04, 1, 0.97))
+    return _save(fig, stem)
+
+
 def fig_1c_4(bundles: dict[str, dict[str, Any]]) -> list[Path]:
     sites = ["L0_mid", "L0_post", "L1_mid", "L1_post", "L2_post"]
     fig, axes = plt.subplots(1, 2, figsize=(11.4, 4.6), layout="constrained",
@@ -1145,6 +1262,7 @@ def write_readme(
         "fig_1c_1_operand_routing": "L0 attends to each op's own operands, not a uniform mix.",
         "fig_1c_2_head_specialization": "Heads are not strictly one-op-one-head; some heads hit all ops.",
         "fig_1c_3_fourier_selectivity": "all_same non-selective; pair/four_diff partially selective, not diagonal-only.",
+        "fig_1c_12_digit_emb_fourier_rings": "Shared digit-emb Fourier rings per query modulus (same layout as 1A). all_same copies one p=31 spectrum; four_diff has four distinct signatures.",
         "fig_1c_4_composition_locus": "L0 still causal; stable linear sum often only after L1 on pair/four_diff.",
         "fig_1c_5_attention_swap": "Routing moves, original acc collapses, alternative acc does not go to 1.",
         "fig_1c_6_operand_patching": "L0 own-operand patch: original→0, donor→1; control positions keep original.",
@@ -1156,6 +1274,7 @@ def write_readme(
         "fig_1c_ts1_routing": "ts1 replication of operand routing (do not average with ts0).",
         "fig_1c_ts1_head_knockout": "ts1 replication of head knockout.",
         "fig_1c_ts1_fourier_selectivity": "ts1 replication of Fourier selectivity.",
+        "fig_1c_ts1_digit_emb_fourier_rings": "ts1 replication of digit-emb Fourier rings (moduli differ from ts0).",
         "fig_1c_ts1_patching": "ts1 replication of operand patching.",
         "fig_1c_ts1_steering": "ts1 replication of residual steering.",
     }
@@ -1274,6 +1393,9 @@ def main() -> None:
         ["variant", "task_seed", "layer", "head", "specialization", "source"],
     )
     written += fig_1c_3(c1c0, ts=0, stem=OUT / "core/fig_1c_3_fourier_selectivity")
+    written += fig_1c_12(
+        c1c0, ts=0, stem=OUT / "core/fig_1c_12_digit_emb_fourier_rings"
+    )
     fsel = []
     for v, b in c1c0.items():
         for r in b["fourier_sel"]:
@@ -1320,6 +1442,9 @@ def main() -> None:
     paths, spec1 = fig_1c_2(c1c1, ts=1, stem=OUT / "appendix/fig_1c_ts1_head_knockout")
     written += paths
     written += fig_1c_3(c1c1, ts=1, stem=OUT / "appendix/fig_1c_ts1_fourier_selectivity")
+    written += fig_1c_12(
+        c1c1, ts=1, stem=OUT / "appendix/fig_1c_ts1_digit_emb_fourier_rings"
+    )
     written += fig_1c_6(c1c1, ts=1, stem=OUT / "appendix/fig_1c_ts1_patching")
     written += fig_1c_8(c1c1, ts=1, stem=OUT / "appendix/fig_1c_ts1_steering")
 
@@ -1330,6 +1455,10 @@ def main() -> None:
     NOTES.append("All 27 1B runs reached t_gen under the 3-eval rule; no X markers.")
     NOTES.append(
         "Unembed top-k ablation CSV only has k=1..3; digit-emb Fourier curves go to k=6."
+    )
+    NOTES.append(
+        "Digit-emb Fourier rings are a function of (tok_emb, p) only, so same-p queries "
+        "in a variant (all_same; pair_same Q0/Q1) share an identical ring."
     )
     write_readme(jobs, written, curve_rule)
     pngs = [p for p in written if p.suffix == ".png"]
