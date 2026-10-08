@@ -11,6 +11,7 @@ from typing import Any
 
 import torch
 
+from go4cl.defaults import PHASE2
 from go4cl.metrics.continual import summarize_behavior
 from go4cl.model.transformer import ModelConfig, ModularTransformer
 from go4cl.train.loaders import task_loaders
@@ -63,6 +64,7 @@ def run_protocol(
     include_test: bool = False,
     switch_on: str = "fixed",
     eval_n_per_operation: int = 256,
+    theta_a_ckpt: str | None = None,
 ) -> ProtocolResult:
     """
     Run one of the plan's training protocols on a fixed dataset root.
@@ -145,6 +147,12 @@ def run_protocol(
             "null_task_tokens": bool(train_cfg.null_task_tokens),
             "null_task_ratio": float(train_cfg.null_task_ratio),
             "null_task_label": int(train_cfg.null_task_label),
+            "replay_ratio": (
+                float(PHASE2.sequential_ab_replay_ratio)
+                if protocol == "sequential_ab_replay"
+                else 0.0
+            ),
+            "theta_a_ckpt": theta_a_ckpt,
         },
         **(wandb_config or {}),
     }
@@ -192,7 +200,13 @@ def run_protocol(
         elif protocol == "joint":
             run_joint(session)
         elif protocol == "sequential_ab":
-            run_sequential_ab(session)
+            run_sequential_ab(session, theta_a_ckpt=theta_a_ckpt)
+        elif protocol == "sequential_ab_replay":
+            run_sequential_ab(
+                session,
+                replay_ratio=float(PHASE2.sequential_ab_replay_ratio),
+                theta_a_ckpt=theta_a_ckpt,
+            )
         elif protocol == "a_only_continued":
             run_continued_control(session)
         elif protocol == "sequential_ba":

@@ -73,6 +73,8 @@ class TrainJob:
     null_task_tokens: bool = False
     null_task_ratio: float = 0.25
     null_task_label: int = 0
+    # If set, sequential_ab / sequential_ab_replay skip phase A and load this ckpt.
+    theta_a_ckpt: str | None = None
 
 
 def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
@@ -164,7 +166,9 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
                     if job.sampler_seed is not None
                     else int(job.model_seed)
                 ),
+                "theta_a_ckpt": job.theta_a_ckpt,
             },
+            theta_a_ckpt=job.theta_a_ckpt,
         )
         result["status"] = "ok"
         result["metrics"] = proto.metrics

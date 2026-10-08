@@ -10,6 +10,7 @@ ALL_PROTOCOLS: tuple[str, ...] = (
     "joint",
     "interleaved",
     "sequential_ab",
+    "sequential_ab_replay",
     "sequential_ba",
     "a_only_continued",
 )

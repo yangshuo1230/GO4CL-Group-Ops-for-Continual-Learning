@@ -116,31 +116,49 @@ def compute_overlaps(task_a: TaskSpec, task_b: TaskSpec) -> tuple[float, float, 
     return slot, operand, mod
 
 
-def build_task_pair(
-    *,
-    rho_slot: float = 1.0,
-    rho_operand: float = 1.0,
-    rho_mod: float = 1.0,
-    task_seed: int = 0,
-    pair_id: str | None = None,
-) -> TaskPairSpec:
-    """
-    Construct A/B tasks with controlled overlaps on latent operations.
+def _ops_from(
+    rng: np.random.Generator,
+    edges: dict[int, frozenset[int]],
+    mods: dict[int, int],
+    slots: dict[int, int],
+) -> tuple[Operation, ...]:
+    ops: list[Operation] = []
+    for z in LATENT_OPS:
+        i, j = sorted(edges[z])
+        if rng.random() < 0.5:
+            i, j = j, i
+        ops.append(Operation(latent_id=z, i=i, j=j, modulus=mods[z], slot=slots[z]))
+    return tuple(ops)
 
-    Construction:
-    - Assign each latent a modulus pair; B keeps or flips per rho_mod.
-    - Assign each latent an operand edge from two matchings with given overlap.
-    - Assign each latent a query slot via permutations with given fixed-point rate.
-    """
-    _validate_rho("rho_slot", rho_slot)
-    _validate_rho("rho_operand", rho_operand)
-    _validate_rho("rho_mod", rho_mod)
 
-    rng = np.random.default_rng(task_seed)
-    mods_a, mods_b = _assign_moduli(rng, rho_mod)
-    m_a, m_b = _sample_two_matchings(rng, rho_operand)
+def _build_slots_b(
+    rng: np.random.Generator,
+    slots_a: dict[int, int],
+    rho_slot: float,
+) -> dict[int, int]:
+    fixed_slots = _choose_fixed_points(rng, rho_slot)
+    kept = {z: slots_a[z] for z in fixed_slots}
+    free_latents = [z for z in LATENT_OPS if z not in fixed_slots]
+    free_slots = [slots_a[z] for z in free_latents]
+    if free_latents:
+        for _ in range(1000):
+            rng.shuffle(free_slots)
+            if len(free_latents) == 1 or all(
+                free_slots[i] != slots_a[free_latents[i]] for i in range(len(free_latents))
+            ):
+                break
+        slots_b = dict(kept)
+        for z, s in zip(free_latents, free_slots):
+            slots_b[z] = s
+        return slots_b
+    return dict(kept)
 
-    # Bind edges to latents: shared edges keep the same latent; others are matched arbitrarily
+
+def _bind_edges(
+    rng: np.random.Generator,
+    m_a: tuple[frozenset[int], ...],
+    m_b: tuple[frozenset[int], ...],
+) -> tuple[dict[int, frozenset[int]], dict[int, frozenset[int]]]:
     shared_edges = list(set(m_a) & set(m_b))
     only_a = list(set(m_a) - set(m_b))
     only_b = list(set(m_b) - set(m_a))
@@ -159,52 +177,142 @@ def build_task_pair(
     for z, ea, eb in zip(rem, only_a, only_b):
         edge_a[z] = ea
         edge_b[z] = eb
+    return edge_a, edge_b
 
-    # Slot assignment: start from identity for A, permute for B relative to A
-    slots_a = {z: z for z in LATENT_OPS}  # temporary; then random relabel
+
+def build_canonical_task_a(*, task_seed: int = 0) -> TaskSpec:
+    """Sample Task A from ``task_seed`` alone (independent of overlap rhos)."""
+    rng = np.random.default_rng(np.random.SeedSequence([int(task_seed), 0xA0A0]))
+    pairs = list(MODULUS_PAIRS)
+    rng.shuffle(pairs)
+    mods_a = {
+        z: (p if rng.random() < 0.5 else q) for z, (p, q) in zip(LATENT_OPS, pairs)
+    }
+    all_m = perfect_matchings()
+    rng.shuffle(all_m)
+    m_a = all_m[0]
+    latents = list(LATENT_OPS)
+    rng.shuffle(latents)
+    edges = list(m_a)
+    rng.shuffle(edges)
+    edge_a = {z: e for z, e in zip(latents, edges)}
     slot_relabel = list(range(NUM_LATENT_OPS))
     rng.shuffle(slot_relabel)
     slots_a = {z: slot_relabel[z] for z in LATENT_OPS}
+    return TaskSpec(
+        name="A",
+        task_id=0,
+        operations=_ops_from(rng, edge_a, mods_a, slots_a),
+    )
 
-    fixed_slots = _choose_fixed_points(rng, rho_slot)
-    # Build B slots: keep fixed latents' slots, derange the rest among remaining slots
-    kept = {z: slots_a[z] for z in fixed_slots}
-    free_latents = [z for z in LATENT_OPS if z not in fixed_slots]
-    free_slots = [slots_a[z] for z in free_latents]
-    if free_latents:
-        for _ in range(1000):
-            rng.shuffle(free_slots)
-            # Prefer a derangement relative to A's slot mapping where possible
-            if len(free_latents) == 1 or all(
-                free_slots[i] != slots_a[free_latents[i]] for i in range(len(free_latents))
-            ):
-                break
-        slots_b = dict(kept)
-        for z, s in zip(free_latents, free_slots):
-            slots_b[z] = s
-    else:
-        slots_b = dict(kept)
 
-    def _ops(
-        edges: dict[int, frozenset[int]],
-        mods: dict[int, int],
-        slots: dict[int, int],
-    ) -> tuple[Operation, ...]:
-        ops: list[Operation] = []
-        for z in LATENT_OPS:
-            i, j = sorted(edges[z])
-            if rng.random() < 0.5:
-                i, j = j, i
-            ops.append(
-                Operation(latent_id=z, i=i, j=j, modulus=mods[z], slot=slots[z])
+def build_task_pair(
+    *,
+    rho_slot: float = 1.0,
+    rho_operand: float = 1.0,
+    rho_mod: float = 1.0,
+    task_seed: int = 0,
+    pair_id: str | None = None,
+    fixed_a: bool = False,
+) -> TaskPairSpec:
+    """
+    Construct A/B tasks with controlled overlaps on latent operations.
+
+    Construction:
+    - Assign each latent a modulus pair; B keeps or flips per rho_mod.
+    - Assign each latent an operand edge from two matchings with given overlap.
+    - Assign each latent a query slot via permutations with given fixed-point rate.
+
+    ``fixed_a=True`` (plan-aligned): Task A depends only on ``task_seed``, so every
+    overlap cell with the same seed shares an identical A; only B changes with ρ.
+    Default ``False`` keeps the legacy joint RNG (A also varies with ρ).
+    """
+    _validate_rho("rho_slot", rho_slot)
+    _validate_rho("rho_operand", rho_operand)
+    _validate_rho("rho_mod", rho_mod)
+
+    if fixed_a:
+        task_a = build_canonical_task_a(task_seed=task_seed)
+        rng = np.random.default_rng(
+            np.random.SeedSequence(
+                [
+                    int(task_seed),
+                    int(round(2 * rho_slot)),
+                    int(round(2 * rho_operand)),
+                    int(round(2 * rho_mod)),
+                    0xB0B0,
+                ]
             )
-        return tuple(ops)
+        )
+        a_by = task_a.by_latent()
+        mods_a = {z: a_by[z].modulus for z in LATENT_OPS}
+        edge_a = {z: a_by[z].operand_pair for z in LATENT_OPS}
+        slots_a = {z: a_by[z].slot for z in LATENT_OPS}
 
-    task_a = TaskSpec(name="A", task_id=0, operations=_ops(edge_a, mods_a, slots_a))
-    task_b = TaskSpec(name="B", task_id=1, operations=_ops(edge_b, mods_b, slots_b))
+        # B moduli: keep or flip within each latent's modulus pair.
+        pair_of = {p: q for p, q in MODULUS_PAIRS}
+        pair_of.update({q: p for p, q in MODULUS_PAIRS})
+        fixed_mods = _choose_fixed_points(rng, rho_mod)
+        mods_b = {
+            z: (mods_a[z] if z in fixed_mods else pair_of[mods_a[z]]) for z in LATENT_OPS
+        }
+
+        # B edges: matching with exact operand overlap vs A's edge set.
+        m_a = tuple(edge_a[z] for z in LATENT_OPS)
+        all_m = perfect_matchings()
+        n_shared = int(round(rho_operand * NUM_LATENT_OPS))
+        rng.shuffle(all_m)
+        m_b = None
+        a_set = set(m_a)
+        for cand in all_m:
+            if len(a_set & set(cand)) == n_shared:
+                m_b = cand
+                break
+        if m_b is None:
+            raise RuntimeError(
+                f"fixed_a: no matching with rho_operand={rho_operand} vs canonical A"
+            )
+        # Re-bind: shared edges keep latent ids from A; remainder paired arbitrarily.
+        shared = list(a_set & set(m_b))
+        only_a = list(a_set - set(m_b))
+        only_b = list(set(m_b) - a_set)
+        rng.shuffle(only_a)
+        rng.shuffle(only_b)
+        edge_b: dict[int, frozenset[int]] = {}
+        # map shared edge -> latent that owns it on A
+        latent_of_edge = {edge_a[z]: z for z in LATENT_OPS}
+        for e in shared:
+            edge_b[latent_of_edge[e]] = e
+        rem_latents = [z for z in LATENT_OPS if z not in edge_b]
+        for z, eb in zip(rem_latents, only_b):
+            edge_b[z] = eb
+
+        slots_b = _build_slots_b(rng, slots_a, rho_slot)
+        task_b = TaskSpec(
+            name="B",
+            task_id=1,
+            operations=_ops_from(rng, edge_b, mods_b, slots_b),
+        )
+    else:
+        rng = np.random.default_rng(task_seed)
+        mods_a, mods_b = _assign_moduli(rng, rho_mod)
+        m_a, m_b = _sample_two_matchings(rng, rho_operand)
+        edge_a, edge_b = _bind_edges(rng, m_a, m_b)
+
+        slot_relabel = list(range(NUM_LATENT_OPS))
+        rng.shuffle(slot_relabel)
+        slots_a = {z: slot_relabel[z] for z in LATENT_OPS}
+        slots_b = _build_slots_b(rng, slots_a, rho_slot)
+
+        task_a = TaskSpec(
+            name="A", task_id=0, operations=_ops_from(rng, edge_a, mods_a, slots_a)
+        )
+        task_b = TaskSpec(
+            name="B", task_id=1, operations=_ops_from(rng, edge_b, mods_b, slots_b)
+        )
+
     got_slot, got_op, got_mod = compute_overlaps(task_a, task_b)
 
-    # Numerical tolerance for float representation of 0/0.5/1
     def _close(a: float, b: float) -> bool:
         return abs(a - b) < 1e-9
 
@@ -215,9 +323,9 @@ def build_task_pair(
         )
 
     if pair_id is None:
-        pair_id = (
-            f"s{rho_slot:g}_o{rho_operand:g}_m{rho_mod:g}_seed{task_seed}"
-        )
+        pair_id = f"s{rho_slot:g}_o{rho_operand:g}_m{rho_mod:g}_seed{task_seed}"
+        if fixed_a:
+            pair_id += "_fixedA"
     return TaskPairSpec(
         task_a=task_a,
         task_b=task_b,

@@ -8,9 +8,22 @@ from __future__ import annotations
 
 from typing import Any
 
+from go4cl.defaults import PHASE2
+
 # Protocols whose second phase (or mixture) should be compared to B-from-scratch.
-TRANSFER_PROTOCOLS = ("sequential_ab", "sequential_ba", "joint", "interleaved")
-SWITCH_PROTOCOLS = ("sequential_ab", "sequential_ba", "a_only_continued")
+TRANSFER_PROTOCOLS = (
+    "sequential_ab",
+    "sequential_ab_replay",
+    "sequential_ba",
+    "joint",
+    "interleaved",
+)
+SWITCH_PROTOCOLS = (
+    "sequential_ab",
+    "sequential_ab_replay",
+    "sequential_ba",
+    "a_only_continued",
+)
 
 GROUP_KEYS = (
     "rho_slot",
@@ -102,14 +115,19 @@ def b_exposure(protocol: str, step: float, switch_step: float | None) -> float |
 
     Joint and interleaved run 2S steps so each task expects S steps of data:
     exposure = step / 2. Sequential A→B counts only steps after the switch.
+    Sequential A→B with replay scales post-switch steps by (1 - replay
+    fraction) because that fraction of each B-phase batch is A.
     Sequential B→A counts only steps up to the switch.
     """
     if protocol == "b_only":
         return float(step)
-    if protocol == "sequential_ab":
+    if protocol in {"sequential_ab", "sequential_ab_replay"}:
         if switch_step is None:
             return 0.0
-        return max(0.0, float(step) - float(switch_step))
+        exposed = max(0.0, float(step) - float(switch_step))
+        if protocol == "sequential_ab_replay":
+            exposed *= 1.0 - float(PHASE2.sequential_ab_replay_ratio)
+        return exposed
     if protocol == "sequential_ba":
         if switch_step is None:
             return float(step)
@@ -193,7 +211,7 @@ def summarize_behavior(
         exposed: list[tuple[float, float]] = []
         for step, value in b_series:
             if (
-                protocol == "sequential_ab"
+                protocol in {"sequential_ab", "sequential_ab_replay"}
                 and boundary is not None
                 and step <= boundary
             ):

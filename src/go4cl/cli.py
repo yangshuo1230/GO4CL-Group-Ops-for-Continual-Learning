@@ -130,6 +130,30 @@ def _add_phase3(sub: argparse._SubParsersAction) -> None:
     p_forget.set_defaults(_phase_runner=run_forget_types)
 
 
+def _add_task_partition(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "task-partition",
+        help="AB joint, then C-only, with AB-continued and ABC-joint controls",
+    )
+    ps = p.add_subparsers(dest="tp_cmd", required=True)
+    p_smoke = ps.add_parser("smoke", help="Tiny end-to-end check; does not start the formal run")
+    p_smoke.add_argument("--out", type=str, default="runs/task_partition/smoke")
+    p_run = ps.add_parser("run", help="Formal three-protocol run")
+    p_run.add_argument(
+        "--config",
+        type=str,
+        default="configs/task_partition/default.yaml",
+    )
+    p_run.add_argument("--out", type=str, required=True)
+    p_run.add_argument("--device", type=str, default=None)
+    p_run.add_argument(
+        "--model-seed",
+        type=int,
+        default=None,
+        help="Initial-weight seed. Data, sampler, and eval seeds stay at the config values.",
+    )
+
+
 def _add_job_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--job-dir", type=str, required=True)
     parser.add_argument("--out", type=str, required=True)
@@ -313,6 +337,7 @@ def main(argv: list[str] | None = None) -> None:
     _add_phase2(sub)
     _add_phase3(sub)
     _add_analyze(sub)
+    _add_task_partition(sub)
 
     p_gen = sub.add_parser("generate-data", help="Generate fixed A/B datasets + manifest")
     p_gen.add_argument("--out", type=str, required=True)
@@ -338,6 +363,7 @@ def main(argv: list[str] | None = None) -> None:
             "joint",
             "interleaved",
             "sequential_ab",
+            "sequential_ab_replay",
             "sequential_ba",
             "a_only_continued",
         ],
@@ -388,5 +414,9 @@ def main(argv: list[str] | None = None) -> None:
         from go4cl.scripts.smoke import run_smoke
 
         run_smoke(args)
+    elif args.cmd == "task-partition":
+        from go4cl.phases.task_partition.run import run_from_args
+
+        run_from_args(args)
     else:
         parser.error(f"unknown command {args.cmd}")

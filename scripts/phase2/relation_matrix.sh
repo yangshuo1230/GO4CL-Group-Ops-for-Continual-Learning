@@ -3,11 +3,16 @@
 #
 # Default grid is the 8 extreme cells ({0,1}^3). Pass --grid full for 27.
 # Default protocols: a_only b_only joint sequential_ab sequential_ba
+# Extra: sequential_ab_replay (phase B mixes 10% A packed queries).
 # on one shared manifest per cell (swap is optional via --directions).
+# --fixed-a: Task A depends only on task_seed (same A across ρ cells).
+# --share-a: with --fixed-a, train one A per model_seed then B-only per cell.
 #
 # Usage:
 #   bash scripts/phase2/relation_matrix.sh --dry-run
 #   bash scripts/phase2/relation_matrix.sh --grid full --gpus 0,1,2,3,4,5
+#   bash scripts/phase2/relation_matrix.sh --protocols sequential_ab_replay \
+#     --fixed-a --share-a --conditions ...
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."

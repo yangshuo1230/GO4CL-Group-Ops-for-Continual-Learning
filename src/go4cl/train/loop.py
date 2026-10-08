@@ -53,6 +53,10 @@ class TrainConfig:
     null_task_tokens: bool = False
     null_task_ratio: float = 0.25
     null_task_label: int = 0
+    # Task-partition smoke sets this false. Default keeps the CUDA compile path.
+    compile_model: bool = True
+    # Task-partition turns this off. Other protocols keep logging when a run exists.
+    log_to_wandb: bool = True
 
 
 @dataclass
@@ -86,12 +90,14 @@ def build_optimizer(model: ModularTransformer, cfg: TrainConfig) -> torch.optim.
     )
 
 
-def _train_callable(model: ModularTransformer, device: torch.device):
+def _train_callable(
+    model: ModularTransformer, device: torch.device, *, compile_model: bool = True
+):
     """Use a Triton-compiled forward on CUDA. Cached on the module across segments.
 
     ``False`` means compile was attempted and failed, so later segments stay eager.
     """
-    if device.type != "cuda":
+    if device.type != "cuda" or not compile_model:
         return model
     cached = getattr(model, "_go4cl_compiled", None)
     if cached is False:
@@ -126,6 +132,8 @@ def train_steps(
     optimizer: torch.optim.Optimizer | None = None,
     start_step: int = 0,
     track_events: bool = True,
+    after_eval: Callable[[int, dict[str, Any], ModularTransformer, torch.optim.Optimizer], None]
+    | None = None,
 ) -> TrainState:
     """Run ``cfg.max_steps`` optimization steps.
 
@@ -143,7 +151,7 @@ def train_steps(
     batches = infinite_loader(train_loader)
     total = int(cfg.max_steps)
     pbar = tqdm(range(1, total + 1), desc=run_name, leave=False)
-    train_model = _train_callable(model, device)
+    train_model = _train_callable(model, device, compile_model=cfg.compile_model)
 
     for local_step in pbar:
         model.train()
@@ -278,8 +286,10 @@ def train_steps(
                     record["best_val_acc"] = state.best_val_acc
                     record["best_step"] = state.best_step
             _append_eval_history(state, record, segment=run_name)
+            if after_eval is not None:
+                after_eval(step, record, model, opt)
 
-        if record is not None:
+        if record is not None and cfg.log_to_wandb:
             log_wandb(record, step=step)
 
         if ckpt_dir and local_step % cfg.ckpt_every == 0:
@@ -323,6 +333,8 @@ def train_segment(
     run_name: str = "segment",
     track_events: bool = True,
     stop_fn: Callable[[TrainState], bool] | None = None,
+    after_eval: Callable[[int, dict[str, Any], ModularTransformer, torch.optim.Optimizer], None]
+    | None = None,
 ) -> TrainSegmentResult:
     """Optimizer-aware training segment for Phase 2 sequential protocols.
 
@@ -344,6 +356,7 @@ def train_segment(
         start_step=start_step,
         track_events=track_events,
         stop_fn=stop_fn,
+        after_eval=after_eval,
     )
     assert state.optimizer is not None
     return TrainSegmentResult(state=state, optimizer=state.optimizer, model=model)

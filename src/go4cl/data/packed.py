@@ -151,6 +151,75 @@ class BalancedPackedJointLoader:
         return _torch_batch(merged)
 
 
+def replay_pack_counts(n_packs: int, frac_a: float) -> tuple[int, int]:
+    """Whole-context A/B pack counts for a replay mix (each pack is ``n_ops`` queries)."""
+    if not 0.0 < float(frac_a) < 1.0:
+        raise ValueError(f"frac_a must be in (0, 1), got {frac_a}")
+    n_packs = int(n_packs)
+    if n_packs < 2:
+        raise ValueError(f"n_packs must be >= 2 to mix A and B, got {n_packs}")
+    n_a = int(round(n_packs * float(frac_a)))
+    n_a = min(max(n_a, 1), n_packs - 1)
+    return n_a, n_packs - n_a
+
+
+class MixedPackedReplayLoader:
+    """One step = ``frac_a`` packed queries from A, the rest from B.
+
+    Pack counts are rounded to whole contexts so each task stays op-balanced.
+    ``batch_size`` must be a multiple of ``n_ops``. Default ``frac_a=0.1``.
+    """
+
+    def __init__(
+        self,
+        task_a: TaskSpec,
+        task_b: TaskSpec,
+        splits: dict[int, ResiduePairSplit],
+        *,
+        batch_size: int,
+        seed: int = 0,
+        frac_a: float = 0.1,  # PHASE2.sequential_ab_replay_ratio
+    ) -> None:
+        if task_a.n_ops != task_b.n_ops:
+            raise ValueError(
+                f"replay mix tasks must share n_ops, got {task_a.n_ops} and {task_b.n_ops}"
+            )
+        n_ops = task_a.n_ops
+        if batch_size < 2 * n_ops or batch_size % n_ops != 0:
+            raise ValueError(
+                f"replay batch_size={batch_size} must be a multiple of n_ops={n_ops} "
+                "and at least 2 packs so A and B can both appear"
+            )
+        self.task_a = task_a
+        self.task_b = task_b
+        self.batch_size = int(batch_size)
+        self.n_ops = n_ops
+        self.n_packs = self.batch_size // n_ops
+        self.frac_a_requested = float(frac_a)
+        self.n_packs_a, self.n_packs_b = replay_pack_counts(self.n_packs, frac_a)
+        self.frac_a = self.n_packs_a / self.n_packs
+        self.seed = int(seed)
+        self._builder_a = ContextBuilder(task_a, splits)
+        self._builder_b = ContextBuilder(task_b, splits)
+        self.dataset = _PackedLen(self.n_packs)
+
+    def __iter__(self) -> Iterator[dict[str, torch.Tensor]]:
+        rng_a = np.random.default_rng(self.seed)
+        rng_b = np.random.default_rng(self.seed + 10_007)
+        while True:
+            yield self._next_batch(rng_a, rng_b)
+
+    def _next_batch(
+        self, rng_a: np.random.Generator, rng_b: np.random.Generator
+    ) -> dict[str, torch.Tensor]:
+        part_a = self._builder_a.sample_train_batch(rng_a, self.n_packs_a)
+        part_b = self._builder_b.sample_train_batch(rng_b, self.n_packs_b)
+        merged = {
+            key: np.concatenate([part_a[key], part_b[key]], axis=0) for key in part_a
+        }
+        return _torch_batch(merged)
+
+
 class AlternatingTaskLoader:
     """Yield a full batch of A, then B, then A, ... (interleaved protocol)."""
 

@@ -1,0 +1,40 @@
+# Task-partition formal run.
+# AB joint 200k (A:B = 1:1), then two branches from that same checkpoint:
+#   C-only 100k, and AB continued 100k.
+# ABC joint is 300k from the same initial weights.
+# batch_size 8184 is the nearest size to 8192 divisible by 24
+# (equal A/B packs and equal A/B/C packs).
+
+out_dir: runs/task_partition/formal
+model_seed: 0
+data_seed: 0
+sampler_seed: 0
+eval_seed: 0
+train_frac: 0.8
+lr: 0.001
+weight_decay: 0.3
+batch_size: 8184
+d_model: 64
+n_layers: 3
+n_heads: 4
+d_mlp: 256
+ab_steps: 200000
+continuation_steps: 100000
+abc_steps: 300000
+eval_every: 1000
+ckpt_every: 10000
+eval_n_per_operation: 256
+c_milestones: [1000, 5000, 10000, 20000]
+stable_threshold: 0.90
+stable_window: 5
+partition_min_acc: 0.90
+counterfactual_diag_min: 0.80
+counterfactual_off_max: 0.20
+counterfactual_flip_min: 0.80
+require_partition: true
+mech_n_contexts: 256
+mech_n_per_operation: 64
+probe_steps: 200
+compile_model: true
+device: cuda
+smoke: false

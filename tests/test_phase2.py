@@ -73,6 +73,11 @@ def test_summarize_sequential_forgetting_and_exposure() -> None:
     assert summary["grok_order"] == "A_only"
     assert summary["b_exposure_steps_to_gen"] is None
 
+    replay = summarize_behavior("sequential_ab_replay", history, switch_step=200)
+    assert replay["forgetting_A"] == pytest.approx(0.55)
+    assert replay["jump_A"] == pytest.approx(0.45)
+    assert replay["b_exposure_auc"] == pytest.approx(0.5)
+
 
 def test_forward_transfer_signs() -> None:
     keys = {
@@ -138,6 +143,32 @@ def test_balanced_packed_joint_is_half_half() -> None:
     batch2 = next(stream)
     assert batch2["task_ids"].tolist().count(0) == 4
     assert not np.array_equal(batch["tokens"].numpy(), batch2["tokens"].numpy())
+
+
+def test_mixed_packed_replay_is_ten_percent() -> None:
+    from go4cl.data.generate import build_shared_residue_splits
+    from go4cl.data.packed import MixedPackedReplayLoader
+    from go4cl.defaults import PHASE2
+    from go4cl.tasks.relations import build_task_pair
+
+    pair = build_task_pair(rho_slot=1.0, rho_operand=1.0, rho_mod=1.0, task_seed=0)
+    splits = build_shared_residue_splits(
+        [pair.task_a, pair.task_b], data_seed=0, ratios=(0.6, 0.2, 0.2)
+    )
+    loader = MixedPackedReplayLoader(
+        pair.task_a,
+        pair.task_b,
+        splits,
+        batch_size=40,
+        seed=0,
+        frac_a=PHASE2.sequential_ab_replay_ratio,
+    )
+    batch = next(iter(loader))
+    assert batch["tokens"].shape[0] == 40
+    assert loader.n_packs_a == 1
+    assert loader.n_packs_b == 9
+    assert batch["task_ids"].tolist().count(0) == 4
+    assert batch["task_ids"].tolist().count(1) == 36
 
 
 def test_prepare_phase2_dataset_packed(tmp_path: Path) -> None:
@@ -263,6 +294,25 @@ def test_short_sequential_and_joint_on_packed_data(tmp_path: Path) -> None:
     assert seq.metrics["behavior"]["n_eval"] >= 1
     assert (tmp_path / "seq" / "eval_history.jsonl").is_file()
     assert (tmp_path / "seq" / "ckpts" / "theta_A.pt").is_file()
+
+    replay = run_protocol(
+        "sequential_ab_replay",
+        meta["data_dir"],
+        tmp_path / "seq_replay",
+        model_cfg=model_cfg,
+        train_cfg=train_cfg,
+        model_seed=0,
+        phase_steps=2,
+        wandb_enabled=False,
+        include_test=True,
+        switch_on="fixed",
+        eval_n_per_operation=2,
+    )
+    assert replay.metrics["switch_step"] == 2
+    assert replay.metrics["replay_ratio"] == pytest.approx(0.1)
+    assert replay.metrics["replay_n_packs_a"] >= 1
+    assert replay.metrics["replay_n_packs_b"] >= 1
+    assert (tmp_path / "seq_replay" / "ckpts" / "theta_A.pt").is_file()
 
     joint = run_protocol(
         "joint",

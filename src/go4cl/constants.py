@@ -12,7 +12,10 @@ CONTEXT_LENGTH = 10  # 8 operands + TASK + QUERY
 NUM_OUTPUT_CLASSES = 53
 MAX_OUTPUT = NUM_OUTPUT_CLASSES - 1
 
-# Task and query special tokens (appended after digit tokens 0..63)
+# Task and query special tokens (appended after digit tokens 0..63).
+# TASK_C is appended after the query tokens so Q0–Q3 ids stay at 66..69.
+# Two-task models keep VOCAB_SIZE and never emit TASK_C. The task-partition
+# experiment sets ModelConfig.vocab_size = PARTITION_VOCAB_SIZE.
 TASK_TOKENS = ("TASK_A", "TASK_B")
 QUERY_TOKENS = ("Q_0", "Q_1", "Q_2", "Q_3")
 NUM_TASKS = len(TASK_TOKENS)
@@ -24,11 +27,13 @@ TOKEN_Q0 = NUM_DIGITS + 2
 TOKEN_Q1 = NUM_DIGITS + 3
 TOKEN_Q2 = NUM_DIGITS + 4
 TOKEN_Q3 = NUM_DIGITS + 5
+TOKEN_TASK_C = NUM_DIGITS + NUM_TASKS + NUM_QUERIES  # 70
 
-TASK_TOKEN_IDS = (TOKEN_TASK_A, TOKEN_TASK_B)
+TASK_TOKEN_IDS = (TOKEN_TASK_A, TOKEN_TASK_B, TOKEN_TASK_C)
 QUERY_TOKEN_IDS = (TOKEN_Q0, TOKEN_Q1, TOKEN_Q2, TOKEN_Q3)
 
 VOCAB_SIZE = NUM_DIGITS + NUM_TASKS + NUM_QUERIES  # 70
+PARTITION_VOCAB_SIZE = TOKEN_TASK_C + 1  # 71
 
 # Primary modulus set (pairwise coprime primes, no multiples).
 # Temporary swap: 19 → 53 (small-p multi-op interference); pairs re-covered.

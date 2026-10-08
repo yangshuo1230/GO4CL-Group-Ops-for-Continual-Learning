@@ -92,7 +92,7 @@ class TaskSpec:
     """One-to-four operations. Full tasks (4 ops) must be a perfect matching."""
 
     name: str
-    task_id: int  # 0 -> TASK_A token, 1 -> TASK_B token
+    task_id: int  # 0 -> TASK_A, 1 -> TASK_B, 2 -> TASK_C
     operations: tuple[Operation, ...]
 
     def __post_init__(self) -> None:

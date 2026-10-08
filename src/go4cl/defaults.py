@@ -54,6 +54,8 @@ class Phase2Defaults:
     steps: int = 100_000
     batch_size: int = 8192
     n_aliases: int = 16
+    # sequential_ab_replay only: fraction of each phase-B packed batch that is A.
+    sequential_ab_replay_ratio: float = 0.1
 
 
 MODEL = ModelDefaults()

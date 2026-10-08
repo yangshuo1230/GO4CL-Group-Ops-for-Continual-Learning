@@ -264,8 +264,9 @@ $$
 2. joint A+B：每个 batch 以 50/50 比例包含两个任务；
 3. interleaved A/B：按 batch 交替任务；
 4. sequential A→B：A 达到预定泛化标准后切换到 B，无 replay；
-5. sequential B→A：顺序对照；
-6. A-only continued：A 学完后继续训练相同步数，控制自然漂移。
+5. sequential A→B + replay：同一切换，但 B 阶段每个 packed batch 掺入 10% A 正样本（协议名 `sequential_ab_replay`；默认网格不含此项）；
+6. sequential B→A：顺序对照；
+7. A-only continued：A 学完后继续训练相同步数，控制自然漂移。
 
 联合与顺序训练应匹配每个任务接收的样本暴露数。若顺序训练为 A 训练 $S$ step、B 训练 $S$ step，则 joint 训练总计 $2S$ step，并使每个任务期望获得 $S$ step 的数据。
 
@@ -276,6 +277,8 @@ $$
 先运行三个重叠因素取 $\{0,1\}$ 的 $2^3=8$ 个极端条件，确认效应和实现正确；随后运行 $\{0,0.5,1\}^3$ 的完整 27 条件设计。
 
 每个条件包含多个 task pair、多个模型 seed、A→B 与 B→A，并使用相同数据 manifest 比较 joint 与 sequential。
+
+跨 ρ 比较遗忘时，应用 `--fixed-a`：Task A 仅由 `task_seed` 决定，各 overlap 格共用同一 A，只有 B 随 ρ 变。再加 `--share-a` 时，每个 model seed 只训一次 A，各格加载同一 `θ_A` 后只跑 B（含 10% replay）。默认不加这两项，保留 legacy「A 也随 ρ 变」的旧 stamp。
 
 #### 2C. 不只比较最终结果
 
@@ -371,11 +374,12 @@ $$
 1. A-only：A 学完后继续在 A 上训练相同步数，控制自然参数漂移。
 2. B-only from scratch：控制 B 的固有难度。
 3. A→B：核心持续学习条件，不使用 replay。
-4. B→A：顺序对照。
-5. Joint A+B：验证兼容解是否存在，以及当前容量能否同时容纳两个任务。
-6. Interleaved A/B：作为避免遗忘的行为上界之一。
-7. 位置编码稳健性：主实验完成后，用固定 sinusoidal encoding 重复代表性条件。
-8. 激活函数稳健性：主实验完成后，用 GELU 重复代表性条件。
+4. A→B + 10% A replay：对照，检验少量旧任务正样本能否挡住遗忘（`sequential_ab_replay`）。
+5. B→A：顺序对照。
+6. Joint A+B：验证兼容解是否存在，以及当前容量能否同时容纳两个任务。
+7. Interleaved A/B：作为避免遗忘的行为上界之一。
+8. 位置编码稳健性：主实验完成后，用固定 sinusoidal encoding 重复代表性条件。
+9. 激活函数稳健性：主实验完成后，用 GELU 重复代表性条件。
 
 ## 8. 数据划分与验证原则
 

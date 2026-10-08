@@ -140,6 +140,18 @@ def add_shared_args(
         action="store_true",
         help="Write datasets and the job list, then exit before training.",
     )
+    parser.add_argument(
+        "--fixed-a",
+        action="store_true",
+        help="Task A depends only on task_seed (same A across overlap cells). "
+        "Dataset tags get _fixedA; does not affect legacy stamps.",
+    )
+    parser.add_argument(
+        "--share-a",
+        action="store_true",
+        help="With --fixed-a: train one shared A per model_seed, then every "
+        "sequential_ab / sequential_ab_replay job loads that θ_A and only runs phase B.",
+    )
 
 
 def _require_protocols(names: list[str]) -> list[str]:
@@ -341,6 +353,13 @@ def launch_grid(
     null_task_tokens = bool(getattr(args, "null_task_tokens", False))
     null_task_ratio = float(getattr(args, "null_task_ratio", 0.25))
     null_task_label = int(getattr(args, "null_task_label", 0))
+    fixed_a = bool(getattr(args, "fixed_a", False))
+    share_a = bool(getattr(args, "share_a", False))
+    if share_a and not fixed_a:
+        raise SystemExit("--share-a requires --fixed-a (shared A only makes sense when A is identical across ρ)")
+    seq_protocols = {"sequential_ab", "sequential_ab_replay"}
+    if share_a and not any(p in seq_protocols for p in protocols):
+        raise SystemExit("--share-a only applies to sequential_ab / sequential_ab_replay")
 
     print(f"[phase2/{step}] out={out_root}")
     print(
@@ -351,7 +370,8 @@ def launch_grid(
     print(
         f"[phase2/{step}] cfg: train_frac={train_frac} wd={weight_decay} "
         f"steps={steps} batch_size={batch_size} aliases={args.n_aliases} "
-        f"switch_on={args.switch_on} null_task_tokens={null_task_tokens}"
+        f"switch_on={args.switch_on} null_task_tokens={null_task_tokens} "
+        f"fixed_a={fixed_a} share_a={share_a}"
     )
 
     metas: list[dict[str, Any]] = []
@@ -369,12 +389,148 @@ def launch_grid(
                     n_aliases=int(args.n_aliases),
                     train_frac=train_frac,
                     direction=direction,
+                    fixed_a=fixed_a,
                 )
                 meta = {**meta, "condition": cond.name}
                 metas.append(meta)
                 meta_by_key[(cond.name, task_seed, direction)] = meta
 
     wandb_group = args.wandb_group or f"p2_{step}_{stamp()}"
+
+    def _make_job(
+        *,
+        protocol: str,
+        cond: Condition,
+        task_seed: int,
+        direction: str,
+        model_seed: int,
+        d_model: int,
+        n_layers: int,
+        meta: dict[str, Any],
+        theta_a_ckpt: str | None = None,
+        job_id_prefix: str | None = None,
+    ) -> TrainJob:
+        proto_name = job_id_prefix or protocol
+        job_id = (
+            f"{proto_name}_{cond.name}_{direction}"
+            f"_ts{task_seed}_ms{model_seed}"
+            f"_d{d_model}_L{n_layers}"
+            f"_wd{weight_decay:g}_steps{steps}"
+        )
+        if fixed_a:
+            job_id += "_fixedA"
+        if null_task_tokens:
+            job_id += f"_null{null_task_label:g}_r{null_task_ratio:g}"
+        if theta_a_ckpt:
+            job_id += "_fromSharedA"
+        return TrainJob(
+            job_id=job_id,
+            data_dir=meta["data_dir"],
+            out_dir=str(out_root / "runs" / job_id),
+            gpu=0,
+            steps=steps,
+            lr=float(args.lr),
+            weight_decay=weight_decay,
+            d_model=int(d_model),
+            n_layers=int(n_layers),
+            model_seed=int(model_seed),
+            wandb_project=args.wandb_project,
+            wandb_group=wandb_group,
+            wandb_mode=args.wandb_mode,
+            wandb_tags=(
+                "phase2",
+                step,
+                protocol,
+                cond.name,
+                direction,
+                *(["fixed_a"] if fixed_a else []),
+                *(["share_a"] if theta_a_ckpt else []),
+            ),
+            wandb_config={
+                "phase": "phase2",
+                "step": step,
+                "protocol": protocol,
+                "condition": cond.name,
+                "rho_slot": meta["rho_slot"],
+                "rho_operand": meta["rho_operand"],
+                "rho_mod": meta["rho_mod"],
+                "direction": direction,
+                "task_seed": task_seed,
+                "data_seed": int(args.data_seed),
+                "model_seed": int(model_seed),
+                "d_model": int(d_model),
+                "n_layers": int(n_layers),
+                "n_heads": int(args.n_heads),
+                "train_frac": train_frac,
+                "weight_decay": weight_decay,
+                "steps": steps,
+                "batch_size": batch_size,
+                "switch_on": args.switch_on,
+                "pair_id": meta["pair_id"],
+                "dataset_hash": meta["dataset_hash"],
+                "train_mode": "packed_online",
+                "null_task_tokens": null_task_tokens,
+                "null_task_ratio": null_task_ratio,
+                "null_task_label": null_task_label,
+                "fixed_a": fixed_a,
+                "share_a": bool(theta_a_ckpt) or (share_a and protocol == "a_only"),
+                "replay_ratio": (
+                    float(PHASE2.sequential_ab_replay_ratio)
+                    if protocol == "sequential_ab_replay"
+                    else 0.0
+                ),
+                "theta_a_ckpt": theta_a_ckpt,
+            },
+            batch_size=batch_size,
+            protocol=protocol,
+            include_test=True,
+            switch_on=str(args.switch_on),
+            n_heads=int(args.n_heads),
+            null_task_tokens=null_task_tokens,
+            null_task_ratio=null_task_ratio,
+            null_task_label=null_task_label,
+            theta_a_ckpt=theta_a_ckpt,
+        )
+
+    # Optional phase-0: one shared A per (task_seed, direction, model_seed, size).
+    shared_a_jobs: list[TrainJob] = []
+    shared_a_ckpt: dict[tuple, str] = {}
+    if share_a:
+        ref_cond = conditions[0]
+        for task_seed in task_seeds:
+            for direction in directions:
+                meta = meta_by_key[(ref_cond.name, task_seed, direction)]
+                for model_seed in model_seeds:
+                    for d_model, n_layers in sizes:
+                        job = _make_job(
+                            protocol="a_only",
+                            cond=ref_cond,
+                            task_seed=task_seed,
+                            direction=direction,
+                            model_seed=model_seed,
+                            d_model=d_model,
+                            n_layers=n_layers,
+                            meta=meta,
+                            job_id_prefix="shared_a",
+                        )
+                        # Stable out dir name independent of ref condition label.
+                        shared_id = (
+                            f"shared_a_ts{task_seed}_ms{model_seed}"
+                            f"_d{d_model}_L{n_layers}"
+                            f"_wd{weight_decay:g}_steps{steps}_fixedA"
+                        )
+                        job = TrainJob(
+                            **{
+                                **job.__dict__,
+                                "job_id": shared_id,
+                                "out_dir": str(out_root / "runs" / shared_id),
+                            }
+                        )
+                        shared_a_jobs.append(job)
+                        shared_a_ckpt[
+                            (task_seed, direction, model_seed, d_model, n_layers)
+                        ] = str(Path(job.out_dir) / "ckpts" / "final.pt")
+
     jobs: list[TrainJob] = []
     for cond in conditions:
         for task_seed in task_seeds:
@@ -383,90 +539,49 @@ def launch_grid(
                 for protocol in protocols:
                     for model_seed in model_seeds:
                         for d_model, n_layers in sizes:
-                            job_id = (
-                                f"{protocol}_{cond.name}_{direction}"
-                                f"_ts{task_seed}_ms{model_seed}"
-                                f"_d{d_model}_L{n_layers}"
-                                f"_wd{weight_decay:g}_steps{steps}"
-                            )
-                            if null_task_tokens:
-                                job_id += f"_null{null_task_label:g}_r{null_task_ratio:g}"
+                            theta = None
+                            if share_a and protocol in seq_protocols:
+                                theta = shared_a_ckpt[
+                                    (task_seed, direction, model_seed, d_model, n_layers)
+                                ]
                             jobs.append(
-                                TrainJob(
-                                    job_id=job_id,
-                                    data_dir=meta["data_dir"],
-                                    out_dir=str(out_root / "runs" / job_id),
-                                    gpu=0,
-                                    steps=steps,
-                                    lr=float(args.lr),
-                                    weight_decay=weight_decay,
-                                    d_model=int(d_model),
-                                    n_layers=int(n_layers),
-                                    model_seed=int(model_seed),
-                                    wandb_project=args.wandb_project,
-                                    wandb_group=wandb_group,
-                                    wandb_mode=args.wandb_mode,
-                                    wandb_tags=(
-                                        "phase2",
-                                        step,
-                                        protocol,
-                                        cond.name,
-                                        direction,
-                                    ),
-                                    wandb_config={
-                                        "phase": "phase2",
-                                        "step": step,
-                                        "protocol": protocol,
-                                        "condition": cond.name,
-                                        "rho_slot": meta["rho_slot"],
-                                        "rho_operand": meta["rho_operand"],
-                                        "rho_mod": meta["rho_mod"],
-                                        "direction": direction,
-                                        "task_seed": task_seed,
-                                        "data_seed": int(args.data_seed),
-                                        "model_seed": int(model_seed),
-                                        "d_model": int(d_model),
-                                        "n_layers": int(n_layers),
-                                        "n_heads": int(args.n_heads),
-                                        "train_frac": train_frac,
-                                        "weight_decay": weight_decay,
-                                        "steps": steps,
-                                        "batch_size": batch_size,
-                                        "switch_on": args.switch_on,
-                                        "pair_id": meta["pair_id"],
-                                        "dataset_hash": meta["dataset_hash"],
-                                        "train_mode": "packed_online",
-                                        "null_task_tokens": null_task_tokens,
-                                        "null_task_ratio": null_task_ratio,
-                                        "null_task_label": null_task_label,
-                                    },
-                                    batch_size=batch_size,
+                                _make_job(
                                     protocol=protocol,
-                                    include_test=True,
-                                    switch_on=str(args.switch_on),
-                                    n_heads=int(args.n_heads),
-                                    null_task_tokens=null_task_tokens,
-                                    null_task_ratio=null_task_ratio,
-                                    null_task_label=null_task_label,
+                                    cond=cond,
+                                    task_seed=task_seed,
+                                    direction=direction,
+                                    model_seed=model_seed,
+                                    d_model=d_model,
+                                    n_layers=n_layers,
+                                    meta=meta,
+                                    theta_a_ckpt=theta,
                                 )
                             )
 
-    gpu_assign = assign_gpus(len(jobs), gpus, workers_per_gpu)
-    jobs = [
-        TrainJob(**{**job.__dict__, "gpu": gpu})
-        for job, gpu in zip(jobs, gpu_assign)
-    ]
+    def _assign(job_list: list[TrainJob]) -> list[TrainJob]:
+        gpu_assign = assign_gpus(len(job_list), gpus, workers_per_gpu)
+        return [
+            TrainJob(**{**job.__dict__, "gpu": gpu})
+            for job, gpu in zip(job_list, gpu_assign)
+        ]
+
+    shared_a_jobs = _assign(shared_a_jobs) if shared_a_jobs else []
+    jobs = _assign(jobs)
+    all_jobs_for_manifest = [*shared_a_jobs, *jobs]
     manifest = {
         "created_at": utc_now(),
         "phase": "phase2",
         "step": step,
-        "n_jobs": len(jobs),
+        "n_jobs": len(all_jobs_for_manifest),
+        "n_shared_a_jobs": len(shared_a_jobs),
         "protocols": protocols,
         "conditions": [c.__dict__ for c in conditions],
         "directions": directions,
         "task_seeds": task_seeds,
         "model_seeds": model_seeds,
         "sizes": [{"d_model": d, "n_layers": n} for d, n in sizes],
+        "fixed_a": fixed_a,
+        "share_a": share_a,
         "wandb_group": wandb_group,
         "jobs": [
             {
@@ -477,22 +592,43 @@ def launch_grid(
                 "out_dir": job.out_dir,
                 "d_model": job.d_model,
                 "n_layers": job.n_layers,
+                "theta_a_ckpt": job.theta_a_ckpt,
             }
-            for job in jobs
+            for job in all_jobs_for_manifest
         ],
     }
     (out_root / "jobs.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    print(f"[phase2/{step}] jobs={len(jobs)} group={wandb_group}")
+    print(
+        f"[phase2/{step}] jobs={len(jobs)} shared_a={len(shared_a_jobs)} "
+        f"group={wandb_group}"
+    )
     if args.dry_run:
         print(f"[phase2/{step}] dry-run; wrote {out_root / 'jobs.json'}")
         return
 
-    results = run_job_pool(jobs, gpus=gpus, workers_per_gpu=workers_per_gpu)
-    _write_transfer(out_root, step, results)
-    _write_by_rho(out_root, step, results)
+    shared_results: list[dict[str, Any]] = []
+    if shared_a_jobs:
+        print(f"[phase2/{step}] training {len(shared_a_jobs)} shared A checkpoint(s) first")
+        shared_results = run_job_pool(
+            shared_a_jobs, gpus=gpus, workers_per_gpu=workers_per_gpu
+        )
+        bad = [r for r in shared_results if r.get("status") != "ok"]
+        if bad:
+            raise SystemExit(
+                f"shared-A training failed for {len(bad)} job(s); "
+                f"example={bad[0].get('job_id')} err={bad[0].get('error')}"
+            )
+        for final_path in shared_a_ckpt.values():
+            if not Path(final_path).is_file():
+                raise SystemExit(f"missing shared A ckpt: {final_path}")
+
+    main_results = run_job_pool(jobs, gpus=gpus, workers_per_gpu=workers_per_gpu)
+    results = [*shared_results, *main_results]
+    _write_transfer(out_root, step, main_results)
+    _write_by_rho(out_root, step, main_results)
     write_report(
         out_root,
         phase="phase2",
@@ -519,6 +655,8 @@ def launch_grid(
             "wandb_group": wandb_group,
             "train_mode": "packed_online",
             "include_test": True,
+            "fixed_a": fixed_a,
+            "share_a": share_a,
         },
         datasets=metas,
         results=results,

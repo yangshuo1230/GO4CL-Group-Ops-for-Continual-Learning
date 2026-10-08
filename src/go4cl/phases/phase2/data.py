@@ -27,8 +27,12 @@ def prepare_phase2_dataset(
     n_aliases: int,
     train_frac: float = 0.8,
     direction: str = "forward",
+    fixed_a: bool = False,
 ) -> dict[str, Any]:
-    """Build or reuse one packed A/B dataset under ``out/data/``."""
+    """Build or reuse one packed A/B dataset under ``out/data/``.
+
+    ``fixed_a=True``: Task A depends only on ``task_seed`` (same A across ρ cells).
+    """
     from go4cl.data.generate import generate_task_datasets, save_datasets
     from go4cl.data.manifest import DataManifest
     from go4cl.data.residue_pairs import assert_disjoint
@@ -43,6 +47,8 @@ def prepare_phase2_dataset(
         f"_{direction}_ts{task_seed}_ds{data_seed}_a{n_aliases}"
         f"_tr{train_frac:g}_pack1"
     )
+    if fixed_a:
+        tag += "_fixedA"
     data_dir = out / "data" / tag
     manifest_path = data_dir / "manifest.json"
     if manifest_path.exists():
@@ -58,6 +64,7 @@ def prepare_phase2_dataset(
             rho_operand=rho_operand,
             rho_mod=rho_mod,
             task_seed=task_seed,
+            fixed_a=bool(fixed_a),
         )
         if direction == "swap":
             pair = swap_ab(pair)
@@ -104,4 +111,5 @@ def prepare_phase2_dataset(
         "train_mode": manifest.train_mode,
         "dataset_hash": manifest.dataset_hash,
         "generation_rule": PHASE2_GENERATION_RULE,
+        "fixed_a": bool(fixed_a),
     }
