@@ -247,7 +247,12 @@ def test_protocols_dry_run_lists_every_protocol(tmp_path: Path) -> None:
     run_protocols(args)
     payload = __import__("json").loads((tmp_path / "jobs.json").read_text())
     assert payload["n_jobs"] == 7
+    assert payload["optimizer_transition"] == "preserve"
     assert {job["protocol"] for job in payload["jobs"]} == set(args.protocols)
+    sequential = [job for job in payload["jobs"] if str(job["protocol"]).startswith("sequential")]
+    assert sequential
+    assert all(job["optimizer_transition"] == "preserve" for job in sequential)
+    assert all("_optpreserve" in job["job_id"] for job in sequential)
 
 
 def test_short_sequential_and_joint_on_packed_data(tmp_path: Path) -> None:
@@ -290,6 +295,12 @@ def test_short_sequential_and_joint_on_packed_data(tmp_path: Path) -> None:
         eval_n_per_operation=2,
     )
     assert seq.metrics["switch_step"] == 2
+    assert seq.metrics["optimizer_transition"] == "preserve"
+    assert seq.metrics["primary_event"] == "B_t_gen"
+    resolved = __import__("json").loads(
+        (tmp_path / "seq" / "config_resolved.json").read_text(encoding="utf-8")
+    )
+    assert resolved["train"]["optimizer_transition"] == "preserve"
     assert "forgetting_A_from_switch" in seq.metrics
     assert seq.metrics["behavior"]["n_eval"] >= 1
     assert (tmp_path / "seq" / "eval_history.jsonl").is_file()

@@ -40,6 +40,9 @@ class DataManifest:
     protocol_version: int = 1
     train_context_mode: str = "nuisance_random"
     eval_context_modes: tuple[str, ...] = ("nuisance_random",)
+    # Transfer-mechanism runs set these. Older manifests omit them.
+    fixed_a: bool = False
+    task_a_hash: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -59,6 +62,8 @@ class DataManifest:
             "protocol_version": self.protocol_version,
             "train_context_mode": self.train_context_mode,
             "eval_context_modes": list(self.eval_context_modes),
+            "fixed_a": bool(self.fixed_a),
+            "task_a_hash": self.task_a_hash,
             "operation_keys": [
                 k.to_dict()
                 for t in (self.task_pair.task_a, self.task_pair.task_b)
@@ -88,6 +93,8 @@ class DataManifest:
             eval_context_modes=tuple(
                 d.get("eval_context_modes", ("nuisance_random",))
             ),
+            fixed_a=bool(d.get("fixed_a", False)),
+            task_a_hash=str(d.get("task_a_hash", "")),
         )
 
     def save(self, path: Path | str) -> None:

@@ -18,6 +18,7 @@ from go4cl.train.loaders import task_loaders
 from go4cl.train.loop import TrainConfig
 from go4cl.train.protocol_common import ProtocolName, ProtocolResult, ProtocolSession, write_history
 from go4cl.train.protocol_impl import (
+    canonical_optimizer_transition,
     run_continued_control,
     run_interleaved,
     run_joint,
@@ -25,6 +26,25 @@ from go4cl.train.protocol_impl import (
     run_sequential_ba,
     run_single_task,
 )
+
+NULL_TASK_UNDEFINED = (
+    "null_task_tokens is undefined for replay and interleaved. Replay builds "
+    "its own loader and bypasses the null-task wrapper, and interleaved can "
+    "treat TASK_B as both a negative and a real task. Defined combinations "
+    "are sequential A→B with no replay, and joint negatives."
+)
+
+
+def assert_null_task_protocol(
+    protocol: str,
+    null_task_tokens: bool,
+    replay_ratio: float = 0.0,
+) -> None:
+    """Reject combinations whose negative-task sampling is not defined."""
+    if not null_task_tokens:
+        return
+    if protocol in {"interleaved", "sequential_ab_replay"} or float(replay_ratio) > 0:
+        raise ValueError(NULL_TASK_UNDEFINED)
 from go4cl.utils.checkpoint import save_checkpoint, write_json
 from go4cl.utils.seed import seed_everything
 from go4cl.utils.wandb_log import (
@@ -65,6 +85,7 @@ def run_protocol(
     switch_on: str = "fixed",
     eval_n_per_operation: int = 256,
     theta_a_ckpt: str | None = None,
+    optimizer_transition: str = "preserve",
 ) -> ProtocolResult:
     """
     Run one of the plan's training protocols on a fixed dataset root.
@@ -80,6 +101,17 @@ def run_protocol(
     model_cfg = model_cfg or ModelConfig()
     steps = phase_steps or train_cfg.max_steps
     resolved_sampler_seed = int(sampler_seed if sampler_seed is not None else model_seed)
+    optimizer_mode = canonical_optimizer_transition(optimizer_transition)
+    replay_ratio = (
+        float(PHASE2.sequential_ab_replay_ratio)
+        if protocol == "sequential_ab_replay"
+        else 0.0
+    )
+    assert_null_task_protocol(
+        protocol,
+        bool(train_cfg.null_task_tokens),
+        replay_ratio=replay_ratio,
+    )
 
     seed_everything(model_seed)
     device = torch.device(train_cfg.device)
@@ -147,12 +179,9 @@ def run_protocol(
             "null_task_tokens": bool(train_cfg.null_task_tokens),
             "null_task_ratio": float(train_cfg.null_task_ratio),
             "null_task_label": int(train_cfg.null_task_label),
-            "replay_ratio": (
-                float(PHASE2.sequential_ab_replay_ratio)
-                if protocol == "sequential_ab_replay"
-                else 0.0
-            ),
+            "replay_ratio": replay_ratio,
             "theta_a_ckpt": theta_a_ckpt,
+            "optimizer_transition": optimizer_mode,
         },
         **(wandb_config or {}),
     }
@@ -160,6 +189,7 @@ def run_protocol(
         "protocol": protocol,
         "model_seed": model_seed,
         "sampler_seed": resolved_sampler_seed,
+        "optimizer_transition": optimizer_mode,
     }
     wb = init_wandb(
         enabled=wandb_enabled,
@@ -200,12 +230,17 @@ def run_protocol(
         elif protocol == "joint":
             run_joint(session)
         elif protocol == "sequential_ab":
-            run_sequential_ab(session, theta_a_ckpt=theta_a_ckpt)
+            run_sequential_ab(
+                session,
+                theta_a_ckpt=theta_a_ckpt,
+                optimizer_transition=optimizer_mode,
+            )
         elif protocol == "sequential_ab_replay":
             run_sequential_ab(
                 session,
-                replay_ratio=float(PHASE2.sequential_ab_replay_ratio),
+                replay_ratio=replay_ratio,
                 theta_a_ckpt=theta_a_ckpt,
+                optimizer_transition=optimizer_mode,
             )
         elif protocol == "a_only_continued":
             run_continued_control(session)

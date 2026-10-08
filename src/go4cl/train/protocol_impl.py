@@ -1,7 +1,8 @@
 """Named training-protocol implementations.
 
-Sequential protocols keep the optimizer (``preserve``) and continue the
-global step counter across the task switch.
+Sequential A→B continues the global step counter across the task switch.
+``optimizer_transition`` is ``preserve`` (keep AdamW moments; the historical
+Phase 2 default) or ``fresh`` (load θ_A weights and build a new AdamW).
 """
 
 from __future__ import annotations
@@ -120,16 +121,73 @@ def _phase_b_loader(session: ProtocolSession, replay_ratio: float):
     )
 
 
+def canonical_optimizer_transition(name: str) -> str:
+    """Public names are ``fresh`` and ``preserve``. ``reset`` means ``fresh``."""
+    if name in {"fresh", "reset"}:
+        return "fresh"
+    if name == "preserve":
+        return "preserve"
+    raise ValueError(
+        "optimizer_transition must be fresh or preserve "
+        f"(reset is an alias of fresh), got {name}"
+    )
+
+
+def phase_b_optimizer(
+    model,
+    train_cfg: TrainConfig,
+    *,
+    transition: str,
+    carried: torch.optim.Optimizer | None = None,
+    payload: dict | None = None,
+    checkpoint_path: str | None = None,
+):
+    """Build the AdamW that trains B.
+
+    ``fresh`` ignores any carried moments. ``preserve`` restores them from
+    ``carried`` or from ``payload['optimizer_state']``.
+    """
+    import torch
+
+    mode = canonical_optimizer_transition(transition)
+    if mode == "fresh":
+        return build_optimizer(model, train_cfg), mode
+    if carried is not None and (payload is None or payload.get("optimizer_state") is None):
+        return carried, mode
+    opt = build_optimizer(model, train_cfg)
+    state = None if payload is None else payload.get("optimizer_state")
+    if state is None and checkpoint_path:
+        from pathlib import Path
+
+        alt = Path(checkpoint_path).parent / "a_only_final.pt"
+        if alt.is_file() and alt.resolve() != Path(checkpoint_path).resolve():
+            alt_payload = torch.load(alt, map_location="cpu", weights_only=False)
+            state = alt_payload.get("optimizer_state")
+    if state is None:
+        raise RuntimeError(
+            "optimizer_transition=preserve requires the A checkpoint's AdamW "
+            "state (moments and step). Refusing to start B with a new optimizer."
+        )
+    opt.load_state_dict(state)
+    return opt, mode
+
+
 def run_sequential_ab(
     session: ProtocolSession,
     *,
     replay_ratio: float = 0.0,
     theta_a_ckpt: str | None = None,
+    optimizer_transition: str = "preserve",
 ) -> None:
-    """A→B sequential. If ``theta_a_ckpt`` is set, skip phase A and load that checkpoint."""
+    """A→B sequential. If ``theta_a_ckpt`` is set, skip phase A and load that checkpoint.
+
+    The default ``preserve`` keeps the historical Phase 2 optimizer handoff.
+    ``fresh`` loads θ_A weights and creates a new AdamW for B.
+    """
     import shutil
     from pathlib import Path
 
+    mode = canonical_optimizer_transition(optimizer_transition)
     opt_a = None
     start_step = 0
     if theta_a_ckpt:
@@ -141,9 +199,13 @@ def run_sequential_ab(
         )
         start_step = int(payload.get("step", session.steps))
         cfg_opt = TrainConfig(**{**session.train_cfg.__dict__, "max_steps": session.steps})
-        opt_a = build_optimizer(session.model, cfg_opt)
-        if payload.get("optimizer_state") is not None:
-            opt_a.load_state_dict(payload["optimizer_state"])
+        opt_a, mode = phase_b_optimizer(
+            session.model,
+            cfg_opt,
+            transition=mode,
+            payload=payload,
+            checkpoint_path=str(ckpt_path),
+        )
         out_theta = session.out_dir / "ckpts" / "theta_A.pt"
         out_theta.parent.mkdir(parents=True, exist_ok=True)
         if ckpt_path.resolve() != out_theta.resolve():
@@ -185,10 +247,13 @@ def run_sequential_ab(
             step=start_step,
             meta={
                 "task_switch": "A_done",
-                "optimizer_transition": "preserve",
+                "role": "theta_A",
+                "optimizer_transition": mode,
                 "switch_on": session.switch_on,
             },
         )
+        if mode == "fresh":
+            opt_a = None
         session.metrics["after_a"] = session.eval_both("after_a")
         session.metrics["switch_step"] = start_step
         session.metrics["events_phase_a"] = dict(seg_a.state.events)
@@ -217,7 +282,7 @@ def run_sequential_ab(
         cfg=cfg_b,
         optimizer=opt_a,
         start_step=start_step,
-        optimizer_transition="preserve",
+        optimizer_transition="fresh" if mode == "fresh" else "preserve",
         eval_loaders=session.eval_loaders("A", "B"),
         ckpt_dir=str(session.out_dir / "ckpts"),
         run_name="phase_b",
@@ -230,7 +295,8 @@ def run_sequential_ab(
     session.metrics["forgetting_A_from_switch"] = forgetting(
         max_acc_a, session.metrics["after_b"]["A_test_acc"]
     )
-    session.metrics["optimizer_transition"] = "preserve"
+    session.metrics["optimizer_transition"] = mode
+    session.metrics["primary_event"] = "B_t_gen"
     session.metrics["events_phase_b"] = dict(state_b.events)
     session.attach_best_by_val(state_b, final_tag="phase_b")
 

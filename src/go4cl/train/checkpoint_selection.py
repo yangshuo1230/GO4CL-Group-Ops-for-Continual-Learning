@@ -90,3 +90,79 @@ def default_event_detectors() -> dict[str, StableEventDetector]:
         "t_gen": StableEventDetector("t_gen", threshold=0.90, window=5),
         "t_iid": StableEventDetector("t_iid", threshold=0.95, window=5),
     }
+
+
+def task_scoped_detectors() -> dict[str, StableEventDetector]:
+    """Phase-1 aliases plus ``A_*`` / ``B_*`` task events. Window and thresholds match."""
+    detectors = default_event_detectors()
+    for task in ("A", "B"):
+        for name, threshold in (
+            ("t_mem", 0.99),
+            ("t_gen", 0.90),
+            ("t_iid", 0.95),
+        ):
+            key = f"{task}_{name}"
+            detectors[key] = StableEventDetector(key, threshold=threshold, window=5)
+    return detectors
+
+
+def task_event_values(loader_macros: dict[str, float]) -> tuple[dict[str, float], str | None]:
+    """Map loader names to task-scoped event values.
+
+    Lookup is by exact loader name, so the order of ``loader_macros`` does not
+    matter. When both ``A_val`` and ``B_val`` are present, ``t_gen`` is omitted:
+    the A/B average is not a definition of B having learned. A single-task run
+    still fills ``t_mem`` / ``t_gen`` / ``t_iid`` and returns that task name as
+    the compatibility annotation.
+    """
+
+    def _lookup(*names: str) -> float | None:
+        for name in names:
+            if name in loader_macros:
+                return float(loader_macros[name])
+        return None
+
+    has_a = any(name.startswith("A_") for name in loader_macros)
+    has_b = any(name.startswith("B_") for name in loader_macros)
+    values: dict[str, float] = {}
+    if has_a:
+        for event, name in (
+            ("A_t_mem", "A_train_eval"),
+            ("A_t_gen", "A_val"),
+            ("A_t_iid", "A_iid"),
+        ):
+            value = _lookup(name)
+            if value is not None:
+                values[event] = value
+    if has_b:
+        for event, name in (
+            ("B_t_mem", "B_train_eval"),
+            ("B_t_gen", "B_val"),
+            ("B_t_iid", "B_iid"),
+        ):
+            value = _lookup(name)
+            if value is not None:
+                values[event] = value
+    if has_a and has_b:
+        return values, None
+    if has_b and not has_a:
+        for src, dst in (("B_t_mem", "t_mem"), ("B_t_gen", "t_gen"), ("B_t_iid", "t_iid")):
+            if src in values:
+                values[dst] = values[src]
+        return values, "B"
+    if has_a:
+        for src, dst in (("A_t_mem", "t_mem"), ("A_t_gen", "t_gen"), ("A_t_iid", "t_iid")):
+            if src in values:
+                values[dst] = values[src]
+        return values, "A"
+    for event, name in (
+        ("t_mem", "train_eval"),
+        ("t_gen", "val"),
+        ("t_iid", "iid"),
+    ):
+        value = _lookup(name)
+        if value is not None:
+            values[event] = value
+    if not values:
+        return values, None
+    return values, "single"

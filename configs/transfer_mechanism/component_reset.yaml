@@ -1,0 +1,63 @@
+# Checkpoint mixing on s0_o0_m1 (different slots, different operand pairs,
+# the same moduli). No replay. B uses a fresh AdamW.
+# The 12 interventions are the formal grid. reserved_interventions are
+# parsed and not launched unless include_reserved is set.
+
+experiment: component_reset
+fixed_a: true
+replay_ratio: 0
+carry_optimizer_state: false
+protocols: []
+conditions:
+  - name: s0_o0_m1
+    rho_slot: 0
+    rho_operand: 0
+    rho_mod: 1
+interventions:
+  - full_A
+  - reset_digit_embedding
+  - reset_control_embedding
+  - reset_attention
+  - reset_mlp
+  - reset_output
+  - full_fresh
+  - keep_digit_embedding
+  - keep_control_embedding
+  - keep_attention
+  - keep_mlp
+  - keep_output
+reserved_interventions:
+  - reset_attention_layer_0
+  - reset_attention_layer_1
+  - reset_attention_layer_2
+  - reset_mlp_layer_0
+  - reset_mlp_layer_1
+  - reset_mlp_layer_2
+  - keep_digit_embedding+mlp
+  - keep_digit_embedding+output
+  - keep_digit_embedding+mlp+output
+task_seeds: [0, 1, 2]
+pilot_model_seeds: [0, 1, 2]
+final_model_seeds: [0, 1, 2, 3, 4]
+seed_set: final
+data_seed: 0
+b_sampler_seed: 0
+eval_seed: 0
+train_frac: 0.8
+n_aliases: 16
+weight_decay: 0.3
+batch_size: 8192
+steps: 100000
+lr: 0.001
+eval_every: 1000
+gen_threshold: 0.9
+stable_window: 5
+d_model: 64
+n_layers: 3
+n_heads: 4
+d_mlp: 256
+eval_n_per_operation: 256
+out_dir: runs/transfer_mechanism/component_reset
+device: cuda
+compile_model: true
+include_reserved: false

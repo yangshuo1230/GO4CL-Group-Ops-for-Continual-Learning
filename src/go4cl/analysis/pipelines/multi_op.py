@@ -289,6 +289,7 @@ def _analyze_op(
             modulus=p,
             device=device,
             probe_steps=probe_steps,
+            probe_seed=0,
             top_k_pairs=3,
             baseline_acc=baseline_test,
         )
@@ -406,7 +407,15 @@ def _cross_op_fourier_selectivity(
         row["selectivity"] = float(row["mean_other_delta"] - self_d)
         matrix.append(row)
     model.tok_emb.weight.data.copy_(original)
-    return {"ablate_top1_matrix": matrix}
+    return {
+        "ablate_top1_matrix": matrix,
+        "selection_protocol": "exploratory_same_split",
+        "selection_note": (
+            "exploratory: frequencies were chosen and scored on the same split. "
+            "A confirmatory result selects on validation and reports the test "
+            "score only for that selected component."
+        ),
+    }
 
 
 def _compare(op_reports: list[dict[str, Any]], selectivity: dict[str, Any]) -> dict[str, Any]:

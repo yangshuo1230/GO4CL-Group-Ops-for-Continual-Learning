@@ -17,12 +17,14 @@ from go4cl.model.transformer import ModularTransformer
 from go4cl.train.checkpoint_selection import (
     CheckpointSelector,
     StableEventDetector,
-    default_event_detectors,
+    task_event_values,
+    task_scoped_detectors,
 )
 from go4cl.utils.checkpoint import save_checkpoint
 from go4cl.utils.wandb_log import (
     log_wandb,
     modulus_acc_metrics,
+    operation_acc_metrics,
     slot_acc_metrics,
 )
 
@@ -145,7 +147,8 @@ def train_steps(
     opt = optimizer if optimizer is not None else build_optimizer(model, cfg)
     state = TrainState(step=int(start_step), optimizer=opt)
     selector = CheckpointSelector()
-    detectors = default_event_detectors() if track_events else {}
+    b_selector = CheckpointSelector()
+    detectors = task_scoped_detectors() if track_events else {}
     for name in detectors:
         state.events[name] = None
     batches = infinite_loader(train_loader)
@@ -213,26 +216,55 @@ def train_steps(
                     modulus_acc_metrics(result.by_modulus, prefix=f"{name}_acc")
                 )
                 record.update(slot_acc_metrics(result.by_slot, prefix=f"{name}_acc"))
+                record.update(
+                    operation_acc_metrics(result.by_operation, prefix=f"{name}_acc")
+                )
                 if is_primary_val_loader(name):
                     val_macros[name] = result.macro_operation_accuracy
                     val_losses[name] = result.macro_operation_loss
 
-            # Stable events (fixed eval sets only — never minibatch train_acc)
+            # Stable events are task-scoped. A/B validation is never averaged
+            # into the event that means "B has learned".
             if detectors:
-                t_mem_val = _first_macro(
-                    metrics_by_name, suffixes=("_train_eval",), exact=("train_eval",)
-                )
-                t_gen_val = (
-                    sum(val_macros.values()) / len(val_macros) if val_macros else None
-                )
-                t_iid_val = _first_macro(
-                    metrics_by_name, suffixes=("_iid",), exact=("iid",)
-                )
-                _maybe_fire(detectors, "t_mem", step, t_mem_val, state, record)
-                _maybe_fire(detectors, "t_gen", step, t_gen_val, state, record)
-                _maybe_fire(detectors, "t_iid", step, t_iid_val, state, record)
+                macros = {
+                    name: float(result.macro_operation_accuracy)
+                    for name, result in metrics_by_name.items()
+                }
+                event_values, compat_task = task_event_values(macros)
+                if compat_task is not None:
+                    record["event/compat_task"] = compat_task
+                for event_name, event_value in event_values.items():
+                    _maybe_fire(
+                        detectors, event_name, step, event_value, state, record
+                    )
+                b_gen = detectors.get("B_t_gen")
                 if (
-                    detectors["t_gen"].triggered_step == step
+                    b_gen is not None
+                    and b_gen.triggered_step == step
+                    and ckpt_dir
+                ):
+                    path = f"{ckpt_dir}/B_first_stable.pt"
+                    save_checkpoint(
+                        path,
+                        model,
+                        optimizer=opt,
+                        step=step,
+                        meta={
+                            "run_name": run_name,
+                            "role": "B_first_stable",
+                            "event": "B_t_gen",
+                            "macro_operation_accuracy": event_values.get("B_t_gen"),
+                            "definition": (
+                                "five consecutive B validation macro-operation "
+                                "accuracies >= 0.9"
+                            ),
+                        },
+                    )
+                    state.first_stable_ckpt_path = path
+                    state.events["primary_event"] = "B_t_gen"
+                elif (
+                    compat_task is not None
+                    and detectors["t_gen"].triggered_step == step
                     and ckpt_dir
                     and state.first_stable_ckpt_path is None
                 ):
@@ -245,13 +277,43 @@ def train_steps(
                         meta={
                             "run_name": run_name,
                             "event": "t_gen",
-                            "macro_operation_accuracy": t_gen_val,
+                            "compat_task": compat_task,
+                            "macro_operation_accuracy": event_values.get("t_gen"),
+                            "note": f"t_gen aliases task {compat_task}",
                         },
                     )
                     state.first_stable_ckpt_path = path
                     shutil.copy2(path, Path(ckpt_dir) / "first_stable_threshold.pt")
 
+            if "B_val" in val_macros and ckpt_dir:
+                if b_selector.observe(
+                    step,
+                    macro_operation_accuracy=val_macros["B_val"],
+                    macro_operation_loss=val_losses["B_val"],
+                ):
+                    save_checkpoint(
+                        f"{ckpt_dir}/B_best_val.pt",
+                        model,
+                        optimizer=opt,
+                        step=step,
+                        meta={
+                            "run_name": run_name,
+                            "role": "B_best_val",
+                            "selection": "B_val_macro_operation_accuracy",
+                            "best_val_macro_op_acc": val_macros["B_val"],
+                            "best_val_macro_op_loss": val_losses["B_val"],
+                        },
+                    )
             if val_macros:
+                both = "A_val" in val_macros and "B_val" in val_macros
+                if both:
+                    legacy_role = "AB_tradeoff_best"
+                elif "B_val" in val_macros:
+                    legacy_role = "B_best_val"
+                elif "A_val" in val_macros:
+                    legacy_role = "A_best_val"
+                else:
+                    legacy_role = "single_task_best"
                 score = sum(val_macros.values()) / len(val_macros)
                 score_loss = sum(val_losses.values()) / len(val_losses)
                 if selector.observe(
@@ -272,16 +334,31 @@ def train_steps(
                             meta={
                                 "run_name": run_name,
                                 "best": True,
+                                "legacy_role": legacy_role,
                                 "best_val_acc": score,
                                 "best_val_macro_op_acc": score,
                                 "best_val_macro_op_loss": score_loss,
                                 "val_macros": val_macros,
-                                "selection": "macro_operation_accuracy",
+                                "selection": (
+                                    "mean_A_val_and_B_val"
+                                    if both
+                                    else "macro_operation_accuracy"
+                                ),
+                                "note": (
+                                    "best.pt is the legacy A/B tradeoff checkpoint"
+                                    if both
+                                    else f"best.pt matches role {legacy_role}"
+                                ),
                             },
                         )
                         state.best_ckpt_path = best_path
+                        if both:
+                            shutil.copy2(
+                                best_path, Path(ckpt_dir) / "AB_tradeoff_best.pt"
+                            )
                     record["best_val_acc"] = score
                     record["best_step"] = step
+                    record["best_legacy_role"] = legacy_role
                 else:
                     record["best_val_acc"] = state.best_val_acc
                     record["best_step"] = state.best_step
@@ -305,12 +382,15 @@ def train_steps(
             break
 
     if ckpt_dir:
+        final_meta: dict[str, Any] = {"run_name": run_name, "final": True}
+        if run_name == "phase_b":
+            final_meta["role"] = "phase_b_final"
         save_checkpoint(
             f"{ckpt_dir}/{run_name}_final.pt",
             model,
             optimizer=opt,
             step=state.step,
-            meta={"run_name": run_name, "final": True},
+            meta=final_meta,
         )
         if state.best_ckpt_path is not None:
             src = Path(state.best_ckpt_path)
@@ -342,9 +422,13 @@ def train_segment(
       - ``preserve``: reuse ``optimizer`` (or create once and keep)
       - ``reset``: always build a fresh AdamW
     """
-    if optimizer_transition not in {"preserve", "reset"}:
-        raise ValueError(f"unknown optimizer_transition: {optimizer_transition}")
-    opt = None if optimizer_transition == "reset" else optimizer
+    if optimizer_transition not in {"preserve", "reset", "fresh"}:
+        raise ValueError(
+            "optimizer_transition must be preserve, fresh, or reset "
+            f"(reset is an alias of fresh), got {optimizer_transition}"
+        )
+    # fresh and the older name reset both build a new AdamW.
+    opt = None if optimizer_transition in {"reset", "fresh"} else optimizer
     state = train_steps(
         model,
         train_loader,

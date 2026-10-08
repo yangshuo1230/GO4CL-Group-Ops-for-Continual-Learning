@@ -215,6 +215,7 @@ def analyze_one(
             modulus=p,
             device=device,
             probe_steps=probe_steps,
+            probe_seed=0,
             top_k_pairs=3,
             baseline_acc=baseline_test,
         )

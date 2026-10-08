@@ -75,6 +75,8 @@ class TrainJob:
     null_task_label: int = 0
     # If set, sequential_ab / sequential_ab_replay skip phase A and load this ckpt.
     theta_a_ckpt: str | None = None
+    # fresh: new AdamW for B. preserve: historical Phase 2 handoff of A's moments.
+    optimizer_transition: str = "preserve"
 
 
 def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
@@ -169,6 +171,7 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
                 "theta_a_ckpt": job.theta_a_ckpt,
             },
             theta_a_ckpt=job.theta_a_ckpt,
+            optimizer_transition=job.optimizer_transition,
         )
         result["status"] = "ok"
         result["metrics"] = proto.metrics

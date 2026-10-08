@@ -70,21 +70,25 @@ def _predict(model: ModularTransformer, tokens: np.ndarray, device: torch.device
     return np.concatenate(preds, axis=0)
 
 
-def counterfactual_matrix(
-    model: ModularTransformer,
+def shared_analysis_seed(eval_seed: int) -> int:
+    """One analysis seed for every checkpoint. Checkpoint index is not mixed in."""
+    return int(eval_seed) + 8000
+
+
+def build_mechanism_analysis_bundle(
     tasks: dict[str, TaskSpec],
     splits: dict[int, ResiduePairSplit],
     *,
     n_contexts: int,
+    n_per_operation: int,
     seed: int,
-    device: torch.device,
 ) -> dict[str, Any]:
-    """M[u, v] = P(model(x, Q, TASK_u) predicts the label of task v).
+    """Sample counterfactual, routing, and probe identities once.
 
-    Off-diagonal cells use samples whose two labels differ. Diagonal cells
-    use samples whose label differs from at least one other task, so shared
-    answers do not count as evidence of routing.
+    Compared checkpoints must record the same ``hash``.
     """
+    from go4cl.data.manifest import hash_payload
+
     builder = ContextBuilder(tasks["A"], splits)
     rng = np.random.default_rng(int(seed))
     digits = np.asarray(
@@ -94,6 +98,93 @@ def counterfactual_matrix(
         ],
         dtype=np.int64,
     )
+    routing: dict[str, list] = {}
+    probe: dict[str, list] = {}
+    for name in PARTITION_ORDER:
+        task = tasks[name]
+        routing[name] = build_eval_examples(
+            task,
+            splits,
+            target_split="test",
+            context_mode="packed_id",
+            distractor_split="train",
+            n_per_operation=int(n_per_operation),
+            seed=int(seed) + 100 * int(task.task_id),
+        )
+        probe[name] = build_eval_examples(
+            task,
+            splits,
+            target_split="test",
+            context_mode="packed_id",
+            distractor_split="train",
+            n_per_operation=int(n_per_operation),
+            seed=int(seed) + 900 + int(task.task_id),
+        )
+    n_probe = sum(len(probe[name]) for name in PARTITION_ORDER)
+    order = np.random.default_rng(int(seed)).permutation(n_probe)
+    n_train = max(int(round(0.75 * n_probe)), 1)
+    train_idx = [int(i) for i in order[:n_train]]
+    held_idx = [int(i) for i in order[n_train:]]
+    identity = {
+        "seed": int(seed),
+        "counterfactual_digits": digits.tolist(),
+        "routing_tokens": {
+            name: [list(map(int, example.tokens)) for example in routing[name]]
+            for name in PARTITION_ORDER
+        },
+        "routing_labels": {
+            name: [int(example.label) for example in routing[name]]
+            for name in PARTITION_ORDER
+        },
+        "probe_tokens": {
+            name: [list(map(int, example.tokens)) for example in probe[name]]
+            for name in PARTITION_ORDER
+        },
+        "probe_labels": {
+            name: [int(example.label) for example in probe[name]]
+            for name in PARTITION_ORDER
+        },
+        "probe_train_idx": train_idx,
+        "probe_held_idx": held_idx,
+    }
+    return {
+        **identity,
+        "hash": hash_payload(identity),
+        "probe_seed": int(seed),
+        "_digits": digits,
+        "_routing": routing,
+        "_probe": probe,
+    }
+
+
+def counterfactual_matrix(
+    model: ModularTransformer,
+    tasks: dict[str, TaskSpec],
+    splits: dict[int, ResiduePairSplit],
+    *,
+    n_contexts: int,
+    seed: int,
+    device: torch.device,
+    digits: np.ndarray | None = None,
+) -> dict[str, Any]:
+    """M[u, v] = P(model(x, Q, TASK_u) predicts the label of task v).
+
+    Off-diagonal cells use samples whose two labels differ. Diagonal cells
+    use samples whose label differs from at least one other task, so shared
+    answers do not count as evidence of routing.
+    """
+    if digits is None:
+        builder = ContextBuilder(tasks["A"], splits)
+        rng = np.random.default_rng(int(seed))
+        digits = np.asarray(
+            [
+                builder.sample_packed_digits(rng, default_split="test").digits
+                for _ in range(int(n_contexts))
+            ],
+            dtype=np.int64,
+        )
+    else:
+        digits = np.asarray(digits, dtype=np.int64)
     n_ctx = int(digits.shape[0])
     n_tasks = len(PARTITION_ORDER)
     n_queries = len(QUERY_TOKEN_IDS)
@@ -185,21 +276,25 @@ def routing_summary(
     n_per_operation: int,
     seed: int,
     device: torch.device,
+    examples_by_task: dict[str, list] | None = None,
 ) -> dict[str, Any]:
     """Query-row attention onto the task token and onto that task's operands."""
     model.eval()
     per_task: dict[str, Any] = {}
     for name in PARTITION_ORDER:
         task = tasks[name]
-        examples = build_eval_examples(
-            task,
-            splits,
-            target_split="test",
-            context_mode="packed_id",
-            distractor_split="train",
-            n_per_operation=int(n_per_operation),
-            seed=int(seed) + 100 * int(task.task_id),
-        )
+        if examples_by_task is not None:
+            examples = examples_by_task[name]
+        else:
+            examples = build_eval_examples(
+                task,
+                splits,
+                target_split="test",
+                context_mode="packed_id",
+                distractor_split="train",
+                n_per_operation=int(n_per_operation),
+                seed=int(seed) + 100 * int(task.task_id),
+            )
         grouped: dict[int, list] = {op.slot: [] for op in task.operations}
         for example in examples:
             grouped[int(example.slot)].append(example)
@@ -239,12 +334,15 @@ def _probe_split(
     n_classes: int,
     steps: int,
     seed: int,
+    train_idx: np.ndarray | None = None,
+    held_idx: np.ndarray | None = None,
 ) -> dict[str, float | int]:
-    rng = np.random.default_rng(int(seed))
-    order = rng.permutation(int(features.shape[0]))
-    n_train = max(int(round(0.75 * len(order))), 1)
-    train_idx = order[:n_train]
-    held_idx = order[n_train:]
+    if train_idx is None or held_idx is None:
+        rng = np.random.default_rng(int(seed))
+        order = rng.permutation(int(features.shape[0]))
+        n_train = max(int(round(0.75 * len(order))), 1)
+        train_idx = order[:n_train]
+        held_idx = order[n_train:]
     if len(held_idx) == 0:
         held_idx = train_idx
     fitted = fit_linear_probe(
@@ -254,12 +352,16 @@ def _probe_split(
         {"heldout": labels[held_idx]},
         n_classes=n_classes,
         steps=int(steps),
+        seed=int(seed),
     )
     return {
         "train_acc": float(fitted["train_acc"]),
         "heldout_acc": float(fitted["eval_acc"]["heldout"]),
         "n_train": int(len(train_idx)),
         "n_heldout": int(len(held_idx)),
+        "seed": int(fitted["seed"]),
+        "train_idx": [int(i) for i in train_idx],
+        "held_idx": [int(i) for i in held_idx],
     }
 
 
@@ -272,6 +374,9 @@ def task_identity_probe(
     seed: int,
     steps: int,
     device: torch.device,
+    examples_by_task: dict[str, list] | None = None,
+    train_idx: list[int] | None = None,
+    held_idx: list[int] | None = None,
 ) -> dict[str, Any]:
     """Linear readout of task identity from the final query residual."""
     model.eval()
@@ -280,15 +385,18 @@ def task_identity_probe(
     with torch.no_grad():
         for name in PARTITION_ORDER:
             task = tasks[name]
-            examples = build_eval_examples(
-                task,
-                splits,
-                target_split="test",
-                context_mode="packed_id",
-                distractor_split="train",
-                n_per_operation=int(n_per_operation),
-                seed=int(seed) + 900 + int(task.task_id),
-            )
+            if examples_by_task is not None:
+                examples = examples_by_task[name]
+            else:
+                examples = build_eval_examples(
+                    task,
+                    splits,
+                    target_split="test",
+                    context_mode="packed_id",
+                    distractor_split="train",
+                    n_per_operation=int(n_per_operation),
+                    seed=int(seed) + 900 + int(task.task_id),
+                )
             tokens = torch.tensor([example.tokens for example in examples], device=device)
             residual = model.forward_with_cache(tokens)["query_resid"].detach().cpu()
             features.append(residual)
@@ -297,7 +405,17 @@ def task_identity_probe(
             )
     x = torch.cat(features, dim=0)
     y = torch.cat(labels, dim=0)
-    three_way = _probe_split(x, y, n_classes=3, steps=steps, seed=seed)
+    split_train = None if train_idx is None else np.asarray(train_idx, dtype=np.int64)
+    split_held = None if held_idx is None else np.asarray(held_idx, dtype=np.int64)
+    three_way = _probe_split(
+        x,
+        y,
+        n_classes=3,
+        steps=steps,
+        seed=seed,
+        train_idx=split_train,
+        held_idx=split_held,
+    )
     ab = y < 2
     two_way = _probe_split(
         x[ab],
@@ -311,6 +429,7 @@ def task_identity_probe(
         "probe_acc_ab": two_way["heldout_acc"],
         "probe_3way": three_way,
         "probe_ab": two_way,
+        "seed": int(seed),
     }
 
 
@@ -325,33 +444,51 @@ def analyze_checkpoint(
     n_per_operation: int,
     probe_steps: int,
     seed: int,
+    analysis_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    bundle = analysis_bundle
+    if bundle is None:
+        bundle = build_mechanism_analysis_bundle(
+            tasks,
+            splits,
+            n_contexts=n_contexts,
+            n_per_operation=n_per_operation,
+            seed=int(seed),
+        )
     factual = counterfactual_matrix(
         model,
         tasks,
         splits,
         n_contexts=n_contexts,
-        seed=seed,
+        seed=int(bundle["seed"]),
         device=device,
+        digits=bundle["_digits"],
     )
     routing = routing_summary(
         model,
         tasks,
         splits,
         n_per_operation=n_per_operation,
-        seed=seed + 17,
+        seed=int(bundle["seed"]),
         device=device,
+        examples_by_task=bundle["_routing"],
     )
     probe = task_identity_probe(
         model,
         tasks,
         splits,
         n_per_operation=n_per_operation,
-        seed=seed + 29,
+        seed=int(bundle["probe_seed"]),
         steps=probe_steps,
         device=device,
+        examples_by_task=bundle["_probe"],
+        train_idx=list(bundle["probe_train_idx"]),
+        held_idx=list(bundle["probe_held_idx"]),
     )
     return {
+        "analysis_seed": int(bundle["seed"]),
+        "analysis_bundle_hash": bundle["hash"],
+        "probe_seed": int(bundle["probe_seed"]),
         "test": evaluate_split(model, tasks, loaders, device, "test"),
         "val": evaluate_split(model, tasks, loaders, device, "val"),
         "counterfactual": factual,

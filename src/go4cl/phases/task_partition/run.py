@@ -339,6 +339,7 @@ def _analyze_file(
     bundle: dict[str, Any],
     loaders: dict,
     seed: int,
+    analysis_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     model, payload = load_checkpoint(path, map_location=cfg.device)
     model.to(torch.device(cfg.device))
@@ -352,6 +353,7 @@ def _analyze_file(
         n_per_operation=int(cfg.mech_n_per_operation),
         probe_steps=int(cfg.probe_steps),
         seed=seed,
+        analysis_bundle=analysis_bundle,
     )
     record = {
         "tag": tag,
@@ -742,9 +744,22 @@ def run_task_partition(cfg: PartitionConfig) -> dict[str, Any]:
 
     mech_dir = out / "mechanism"
     mech_dir.mkdir(parents=True, exist_ok=True)
+    from go4cl.phases.task_partition.mechanism import (
+        build_mechanism_analysis_bundle,
+        shared_analysis_seed,
+    )
+
     records: list[dict[str, Any]] = []
     index: list[dict[str, Any]] = []
-    for spec_index, spec in enumerate(specs):
+    analysis_seed = shared_analysis_seed(int(cfg.eval_seed))
+    analysis_bundle = build_mechanism_analysis_bundle(
+        tasks,
+        bundle["splits"],  # type: ignore[arg-type]
+        n_contexts=int(cfg.mech_n_contexts),
+        n_per_operation=int(cfg.mech_n_per_operation),
+        seed=analysis_seed,
+    )
+    for spec in specs:
         _log(f"analyzing {spec['tag']}")
         record = _analyze_file(
             Path(spec["path"]),
@@ -755,7 +770,8 @@ def run_task_partition(cfg: PartitionConfig) -> dict[str, Any]:
             cfg=cfg,
             bundle=bundle,
             loaders=nested,
-            seed=int(cfg.eval_seed) + 8000 + 13 * spec_index,
+            seed=analysis_seed,
+            analysis_bundle=analysis_bundle,
         )
         relative = f"mechanism/{spec['tag']}.json"
         _write(mech_dir / f"{spec['tag']}.json", record)

@@ -5,7 +5,7 @@
 
 **状态约定：** `未开始` · `进行中` · `已完成` · `阻塞` · `跳过`
 
-最后更新：2026-10-06
+最后更新：2026-10-08
 
 ---
 
@@ -17,6 +17,7 @@
 | 阶段一 | `go4cl phase1 …` | 单任务学会什么、何时 grok | 已完成 |
 | 阶段二 | `go4cl phase2 …` | 联合 vs 顺序、任务关系→行为 | 进行中 |
 | 阶段三 | `go4cl phase3 …` | 迁移/遗忘的因果机理 | 未开始 |
+| 迁移机理 | `go4cl transfer-mechanism` | 模数特异性与 checkpoint mixing | 框架已实现，正式实验未开始 |
 
 ---
 
@@ -54,7 +55,7 @@
 | ID | 步骤 | CLI | 产物目录 | 状态 | 锁定配置 / 结论摘要 | 日期 |
 |----|------|-----|----------|------|---------------------|------|
 | 2A | 训练协议对照 | `go4cl phase2 protocols` | `runs/phase2/protocols/` | 进行中 | 默认 `wd=0.3/bs=8192/steps=100k` packed，全重叠。p=23 在 `wd≥0.5` 易 query-only 盆地，见 [`ARCHITECTURE.md`](./ARCHITECTURE.md) | 2026-10-04 |
-| 2B | 任务关系矩阵（8 → 27） | `go4cl phase2 relation-matrix` | `runs/phase2/relation_matrix/` | 进行中 | **无负样本全网格** [`20261004_202208/`](../runs/phase2/relation_matrix/20261004_202208/)：27×四协议=108/108 ok。joint 23/27 双任务≥0.9；sequential 仅 `s1_o1_m1` 双任务≥0.9，其余 B 会 grok、A 大多遗忘。**负样本** `--null-task-tokens --null-task-ratio 0.15`：他机试点 [`20261005_112940/`](../runs/phase2/relation_matrix/20261005_112940/) 一格四协议；本机全网格 [`20261005_154626/`](../runs/phase2/relation_matrix/20261005_154626/) 中途停，留 22/108 ok（见 2026-10-06 日志） | 2026-10-06 |
+| 2B | 任务关系矩阵（8 → 27） | `go4cl phase2 relation-matrix` | `runs/phase2/relation_matrix/` | 进行中 | **无负样本全网格** [`20261004_202208/`](../runs/phase2/relation_matrix/20261004_202208/)：27×四协议=108/108 ok。joint 23/27 双任务≥0.9；sequential 仅 `s1_o1_m1` 双任务≥0.9，其余 B 会 grok、A 大多遗忘。**负样本** `--null-task-tokens --null-task-ratio 0.15`：他机试点 [`20261005_112940/`](../runs/phase2/relation_matrix/20261005_112940/) 一格四协议；本机全网格 [`20261005_154626/`](../runs/phase2/relation_matrix/20261005_154626/) 中途停，留 22/108 ok（见 2026-10-06 日志）。**10% replay**：legacy A-随-ρ [`20261006_131444/`](../runs/phase2/relation_matrix/20261006_131444/) 27/27；失败集中 m=0.5（4 格 A≈0.45–0.75）。**共享 A + replay** [`20261008_184031/`](../runs/phase2/relation_matrix/20261008_184031/) 36/36 ok（2 共享 A + 17 格×ms1/2）；A&lt;0.9 仅 3/34，均为单模 p=53 死亡卡在 ≈0.75 | 2026-10-08 |
 | 2C | 全程行为指标（非独立入口） | 随 2A/2B 记录 | 同上 | 进行中 | eval history → forgetting / jump / exposure AUC / transfer CSV。该格事后 digit/unembed Fourier：[`FOURIER_POSTHOC.md`](../runs/phase2/relation_matrix/20261005_112940/FOURIER_POSTHOC.md) | 2026-10-05 |
 | 2D | 容量消融 | `go4cl phase2 capacity` | `runs/phase2/capacity/` | 进行中 | 六种代表关系 × \{32,64,128\} × \{2,3,4\}。实验未跑 | 2026-10-04 |
 
@@ -73,6 +74,7 @@
 | 3A | 优化层（梯度冲突等） | `go4cl phase3 optimize` | `runs/phase3/optimize/` | 未开始 | CLI 占位 | |
 | 3B | 路由–计算–读出分解 | `go4cl phase3 route-compute-readout` | `runs/phase3/route_compute_readout/` | 未开始 | CLI 占位 | |
 | 3C | 遗忘类型因果区分 | `go4cl phase3 forget-types` | `runs/phase3/forget_types/` | 未开始 | CLI 占位 | |
+| 3E | Forward transfer 来源定位（无 replay） | `go4cl transfer-mechanism` | `runs/transfer_mechanism/` | 框架已实现，正式实验未开始 | **Framework implemented; formal GPU experiments not started.** 代码、配置、dry-run 脚本和 CPU 测试已落地。正式 final 网格未跑：模数 90 任务，checkpoint mixing 195 任务（15 个 A 源 + 180 个 intervention）。Smoke 只验证管线，不是研究结果 | 2026-10-08 |
 
 **阶段三成功标准（摘要）：**
 
@@ -134,4 +136,81 @@
 | 2026-10-06 | **负样本全网格中止** `relation_matrix/20261005_154626`：`--null-task-tokens --null-task-ratio 0.15`，计划 108 job，中途停。删 36 个无 `job_result` 的目录；**22 ok 保留**（a_only 10 / b_only 9 / joint 1 / sequential_ab 2）。对照无负样本 `20261004_202208`：a_only 仍 A≈1、B chance；joint `s0_o0.5_m1` 双任务 0.996/0.994（原 1.0/1.0）；sequential `s0_o0.5_m0.5`、`s0_o0_m1` 切 B 前 A≥0.99，结束后 A≈0.02、forget 0.96/0.98，B 仍≈1——**没有减轻遗忘**。唯一大差：`b_only s0_o0_m1` B 0.967→0.855（p=23 test 0.49，best 0.57；其余三模仍>0.94）。他机试点 `s0.5_o0.5_m1` 曾更差（顺序 A 0.267→0.022），该格本 stamp 未跑完 |
 | 2026-10-06 | **1A Fourier 消融加随机子空间对照**：与 top-\(k\) 相同 \(\lVert\Delta W\rVert_F\) 的 digit-emb 高斯扰动（5 seed）。p=31 final：\(k=1\) acc 0.83 vs 重要频率 0.16。图 `p31_summary/figures/fig3_fourier_ablation.png` |
 | 2026-10-08 | **顺序±replay 权重差分（事后）**：`scripts/phase2/weight_delta_switch.py` 对比 `theta_A`→`final`。产物 [`20261006_131444/weight_delta_switch/`](../runs/phase2/relation_matrix/20261006_131444/weight_delta_switch/)。变化主要集中在 **digit emb + L0/L1 MLP + head**；replay 并未整体缩小 ‖ΔW‖，失败格与成功格总变化量接近 |
-| 2026-10-08 | **`--fixed-a` / `--share-a`**：同 seed 不同 ρ 共用同一 Task A；`--share-a` 先训共享 `θ_A` 再只跑 B。无 replay seed 网格 `20261008_135656` 34/34 ok（legacy A-随-ρ）。共享 A + replay 命令已备好，未自动开跑 |
+| 2026-10-08 | **`--fixed-a` / `--share-a`**：同 seed 不同 ρ 共用同一 Task A；`--share-a` 先训共享 `θ_A` 再只跑 B。无 replay seed 网格 [`20261008_135656/`](../runs/phase2/relation_matrix/20261008_135656/) 34/34 ok（legacy A-随-ρ，sequential 无 replay，A 几乎全忘） |
+| 2026-10-08 | **共享 A + 10% replay** [`20261008_184031/`](../runs/phase2/relation_matrix/20261008_184031/)：`--fixed-a --share-a --protocols sequential_ab_replay`，ms1/2，17 格（与无 replay seed 网格相同），36/36 ok。共享 A 模数固定 `{23,31,41,53}`（A_test 切 B 前 ≈0.980/0.994）。34 个 B-only：mean A 按 m 为 0.926 / 0.969 / 0.987；B 均 ≈0.99。A&lt;0.9 仅 **3/34**，全是丢掉 **p=53**、宏观卡在 ≈0.75：`s0_o0_m0` ms1、`s0.5_o0_m0` ms1、`s1_o0_m0.5` ms2（同格另一 seed 均 ≥0.92）。对照 legacy replay [`20261006_131444/`](../runs/phase2/relation_matrix/20261006_131444/)：A 随 ρ 变，m=0.5 的 A 为 `{29,37,43,53}`，失败 4 格（`s0_o0_m0.5` / `s0_o0.5_m0.5` / `s1_o0_m0.5` / `s1_o0.5_m0.5`，A≈0.45–0.75，常见死模 p=43）。同名 4 格在共享 A 下 7/8 seed ≥0.97，仅 `s1_o0_m0.5` ms2 仍挂。失败形态两次相同（1/4 op 永久归零）；ρ 标签上的 m=0.5 vs m=0「反转」来自 **A/B 模数集合不同**，不是 m 本身固有难易 |
+| 2026-10-08 | **Forward transfer 机理框架**：`src/go4cl/phases/transfer_mechanism/`。模数特异性（`fixed_a`，`b_only`/`sequential_ab`）与 checkpoint mixing（12 个 intervention，fresh optimizer，`replay_ratio=0`）。Framework implemented; formal GPU experiments not started. 未改已有实验结果，smoke 数值不作结论 |
+| 2026-10-08 | **实验有效性修复（未重跑）**：拒绝 `share-a`+`swap`；sequential 记录 `optimizer_transition=fresh\|preserve`（旧 Phase 2 默认仍为 preserve）；B 学会改为 `B_t_gen` / `B_first_stable.pt`；机理分析共用 analysis bundle；探针使用局部 seed；checkpoint 必须显式指定 role；val 选、test 确认。原始 JSON/CSV 未改 |
+
+## 结果有效性与当前解释边界
+
+下面只重新表述已经写过的结论。原始 JSON、CSV 和 checkpoint 都没有改写。
+
+### 可以继续保留的结果
+
+1. 数据生成、余数对划分，以及 train/val/test 不交叠，是可靠的。
+2. 单任务中不同模数存在不同的优化轨迹和 grokking 时间。
+3. `wd=0.5` 下出现小模数 query-only basin，`wd=0.3` 可以离开该 basin。这是可靠的优化现象。
+4. 已经观察到 A→B 相比 matched B-only 更快。这是可靠的行为观察。
+5. replay 下仍可能出现促进作用，可以作为行为结果保留。
+6. task-partition 的行为准确率、遗忘率和 retention，只要来自固定 eval loader，可以保留。
+
+### 必须降低结论强度的结果
+
+**A→B 促进作用。** 在保留 A 阶段模型参数和 AdamW 状态的 sequential protocol 下，B 的学习速度高于 matched B-only baseline，说明 A 阶段训练状态产生了正向迁移。权重贡献与优化器状态贡献尚未分离。只有完成 fresh-vs-preserve optimizer 实验后，才能进一步归因。
+
+**overlap 网格。** 旧 108 网格没有使用 fixed A。单个 condition 内的 protocol 对比仍然有效。跨 ρ cell 的差异只能视为探索性结果，不能宣称只由 overlap 改变导致，因为 A 本身也随 ρ 变化。后续 fixed-A 网格才作为确认性实验。
+
+**best.pt 机理结论。** 旧 sequential `best.pt` 是 A/B tradeoff checkpoint，不等同于 B 学会后的最终状态。基于它的机制分析标记为 exploratory，需要用明确 checkpoint role 复核。可用角色是 `theta_A`、`phase_b_final`、`B_first_stable`、`B_best_val`、`AB_tradeoff_best`。
+
+**task-identity probe。** 高 task probe accuracy 只能表明 task identity 可线性解码，可能只是 task-token embedding 被保留，不能单独证明形成了独立任务计算空间。更强的证据应来自 task-token counterfactual、routing intervention、activation/weight patching，以及在 matched contexts 上改变 task token 后是否切换到对应算法输出。
+
+**在 test 上选电路。** 已有在 test 上同时选 head/layer 并报告效果的结果标记为 exploratory。正式结果需要 val 上选择、test 上确认，并同时保存 val selection score、test confirmation score 和 selected component。Phase 2 动态曲线此后默认使用 validation；test 只用于最终 endpoint 和确认性分析。
+
+### 后续最小重跑矩阵（只列命令，本轮不启动）
+
+优先级 1，在核心条件 `s0.5_o0.5_m1` 上分离 optimizer 贡献。五次运行保持同一 fixed A、同一 B、同一初始化、同一 sampler seed、同一 B exposure 和同一 evaluation contexts：
+
+```bash
+# 1. B-only + fresh optimizer
+uv run go4cl phase2 relation-matrix --conditions s0.5_o0.5_m1 \
+  --protocols b_only --fixed-a --directions forward \
+  --optimizer-transition fresh --task-seeds 0 --model-seeds 0 --data-seed 0 \
+  --out runs/phase2/optimizer_split/b_only_fresh
+
+# 2–3. A→B fresh 与 A→B preserve
+uv run go4cl phase2 relation-matrix --conditions s0.5_o0.5_m1 \
+  --protocols sequential_ab --fixed-a --directions forward \
+  --optimizer-transition fresh --task-seeds 0 --model-seeds 0 --data-seed 0 \
+  --out runs/phase2/optimizer_split/ab_fresh
+uv run go4cl phase2 relation-matrix --conditions s0.5_o0.5_m1 \
+  --protocols sequential_ab --fixed-a --directions forward \
+  --optimizer-transition preserve --task-seeds 0 --model-seeds 0 --data-seed 0 \
+  --out runs/phase2/optimizer_split/ab_preserve
+
+# 4–5. A→B replay fresh 与 preserve
+uv run go4cl phase2 relation-matrix --conditions s0.5_o0.5_m1 \
+  --protocols sequential_ab_replay --fixed-a --directions forward \
+  --optimizer-transition fresh --task-seeds 0 --model-seeds 0 --data-seed 0 \
+  --out runs/phase2/optimizer_split/replay_fresh
+uv run go4cl phase2 relation-matrix --conditions s0.5_o0.5_m1 \
+  --protocols sequential_ab_replay --fixed-a --directions forward \
+  --optimizer-transition preserve --task-seeds 0 --model-seeds 0 --data-seed 0 \
+  --out runs/phase2/optimizer_split/replay_preserve
+```
+
+优先级 2，fixed-A overlap 确认网格。不要加 `--share-a`，也不要把 `swap` 和共享 A 放在一起。顺序协议建议显式使用 `fresh`，这样确认网格不再和旧的 preserve 协议混在一起：
+
+```bash
+uv run go4cl phase2 relation-matrix --grid full --fixed-a --directions forward \
+  --protocols b_only sequential_ab sequential_ab_replay \
+  --optimizer-transition fresh \
+  --out runs/phase2/relation_matrix/fixedA_confirmatory
+```
+
+优先级 3，在 fresh optimizer 下做 checkpoint 参数组混合，看促进作用来自 digit embedding、control embedding、attention、MLP、output，以及各层 attention/MLP。默认 12 个 intervention 已配置为 fresh、无 replay。逐层 intervention 在 `reserved_interventions` 中，默认脚本不启动。单 head mixing 仍未实现。
+
+```bash
+bash scripts/transfer_mechanism/component_reset.sh --dry-run
+```
+
+真正开跑时才把 `--dry-run` 换成 `--execute`。本轮没有执行这些命令。

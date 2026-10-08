@@ -61,6 +61,7 @@ def probe_info_ladder(
     n_layers: int,
     steps: int = 400,
     device: torch.device | None = None,
+    seed: int = 0,
 ) -> dict[str, Any]:
     """Probe xi / xj / sum at every resid_mid and resid_post query site."""
     if device is None:
@@ -86,6 +87,7 @@ def probe_info_ladder(
             operand_j=operand_j,
             modulus=modulus,
             steps=steps,
+            seed=int(seed),
         )
         xi = probes["xi_mod_p"]["eval_acc"].get("test")
         xj = probes["xj_mod_p"]["eval_acc"].get("test")
@@ -298,6 +300,7 @@ def run_composition_analysis(
     modulus: int,
     device: torch.device,
     probe_steps: int = 400,
+    probe_seed: int = 0,
     top_k_pairs: int = 3,
     baseline_acc: float | None = None,
 ) -> dict[str, Any]:
@@ -324,6 +327,7 @@ def run_composition_analysis(
         n_layers=n_layers,
         steps=probe_steps,
         device=device,
+        seed=int(probe_seed),
     )
 
     knockout = component_knockout(

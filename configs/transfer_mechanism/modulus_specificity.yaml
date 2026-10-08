@@ -1,0 +1,53 @@
+# Modulus specificity. fixed_a keeps Task A identical across the three cells.
+# Protocols are b_only and sequential_ab only. replay_ratio must stay 0.
+# carry_optimizer_state is reserved for a later control; this round is false,
+# so B does not inherit Adam moments (phase-2 sequential_ab does).
+# Dry-run is the launcher default. Do not treat smoke numbers as results.
+
+experiment: modulus_specificity
+fixed_a: true
+replay_ratio: 0
+carry_optimizer_state: false
+protocols:
+  - b_only
+  - sequential_ab
+conditions:
+  - name: s0_o0_m0
+    rho_slot: 0
+    rho_operand: 0
+    rho_mod: 0
+  - name: s0_o0_m0.5
+    rho_slot: 0
+    rho_operand: 0
+    rho_mod: 0.5
+  - name: s0_o0_m1
+    rho_slot: 0
+    rho_operand: 0
+    rho_mod: 1
+interventions: []
+reserved_interventions: []
+task_seeds: [0, 1, 2]
+pilot_model_seeds: [0, 1, 2]
+final_model_seeds: [0, 1, 2, 3, 4]
+seed_set: final
+data_seed: 0
+b_sampler_seed: 0
+eval_seed: 0
+train_frac: 0.8
+n_aliases: 16
+weight_decay: 0.3
+batch_size: 8192
+steps: 100000
+lr: 0.001
+eval_every: 1000
+gen_threshold: 0.9
+stable_window: 5
+d_model: 64
+n_layers: 3
+n_heads: 4
+d_mlp: 256
+eval_n_per_operation: 256
+out_dir: runs/transfer_mechanism/modulus_specificity
+device: cuda
+compile_model: true
+include_reserved: false

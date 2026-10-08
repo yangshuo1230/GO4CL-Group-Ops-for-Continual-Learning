@@ -348,6 +348,39 @@ $$
 4. 不依赖单个 attention head 的主观可视化；
 5. 能区分参数变化、表征变化和实际功能变化。
 
+#### 3E. Forward transfer 来源定位
+
+目的是把「A 促进 B」拆成两个可证伪的问题，且本轮实验都不使用 replay：
+
+1. 促进是否只落在与 A 模数相同的 B operation 上？
+2. A checkpoint 里哪些参数组携带了这种促进？
+
+现有 `sequential_ab` 在 A→B 边界保留 Adam 一阶/二阶矩（`optimizer_transition=preserve`）。本仓库没有学习率 scheduler。机理实验默认 `carry_optimizer_state=false`：B 阶段新建 AdamW，步数从 B-exposure 0 起算，不继承 A 的 optimizer state。`carry_optimizer_state=true` 只留给以后的对照。
+
+**模数特异性。** 条件只有 `s0_o0_m0`、`s0_o0_m0.5`、`s0_o0_m1`（`rho_slot=rho_operand=0`，`rho_mod∈{0,0.5,1}`）。必须 `fixed_a=true`：同一 `task_seed` 下三个条件的 Task A 相同，只有 B 随 ρ 变；manifest 写 `fixed_a=true` 和 `task_a_hash`。协议只有 `b_only` 与 `sequential_ab`。`op{k}` 是 latent id `k`（不是 query slot）。每个 B operation 记录 `modulus_seen_in_A`（该模数是否出现在 A 的任一 operation）和 `same_latent_modulus_as_A`（同一 latent 是否保持模数）。主分组用前者。相对 `b_only` 的表是 `per_op_transfer.csv`；shared-modulus / novel-modulus 汇总是 `modulus_specificity_summary.csv`。
+
+**Checkpoint mixing。** 只用 `s0_o0_m1`（槽不同、操作数对不同、模数相同）。同一 model seed 保存 `theta_0.pt`（训 A 前）和 `theta_A.pt`（A 训完），均含 `model_state_dict`、`model_config`、`task_pair`、`dataset_hash`、`task_seed`、`model_seed`、`parameter_group_schema_version`。默认不写 optimizer state。参数组把每个可训练元素恰好分一次：`digit_embedding`（数字 token 行）、`control_embedding`（TASK/QUERY 行与绝对位置编码）、`attention`（各层 QKV、输出投影、bias、pre-attention LN）、`mlp`（各层 MLP 与 pre-MLP LN）、`output`（final LN 与 unembedding）。Q/K/V 是融合的 `attn.qkv`。Reset-one 从 `theta_A` 把指定组换回 `theta_0`；keep-only 从 `theta_0` 只换入指定组。`theta_0`/`theta_A` 文件不被原地修改。B 的数据划分、batch seed、学习率、weight decay、eval 间隔在各 hybrid 间相同，开训前先记 `pre_B/A_test_acc`、`pre_B/B_test_acc`、`pre_B/B_test_loss`。
+
+`b_exposure_steps_to_gen` 与 `first_reach_steps_to_gen` 都是第一次达到 0.9（与阶段二同一定义）。主分析的步数指标是 `stable_steps_to_gen`：连续至少 5 次 evaluation 都不低于 0.9，记下第 5 次的 B-exposure。`stable_delta_steps_to_gen` 与 `delta_b_exposure_auc` 是主比较。Necessity / sufficiency 用 B-exposure AUC，不截断到 [0, 1]，写入 `component_transfer_summary.csv`。
+
+层内 reset（`reset_attention_layer_{0,1,2}`、`reset_mlp_layer_{0,1,2}`）和 `keep_digit_embedding+mlp` 等组合只保留接口，不进入本轮网格。单 head mixing 未实现。配置里 `replay_ratio≠0` 直接报错。
+
+正式网格（本轮不跑）：`task_seeds=[0,1,2]`，`pilot_model_seeds=[0,1,2]`，`final_model_seeds=[0,1,2,3,4]`。final 模数网格 3×2×3×5=90 个任务；checkpoint mixing 为 15 个共享 A 源（3×5）加 12×3×5=180 个 intervention，共 195。输出目录：
+
+- `runs/transfer_mechanism/modulus_specificity/`
+- `runs/transfer_mechanism/component_reset/`
+
+```bash
+bash scripts/transfer_mechanism/modulus_specificity.sh --dry-run
+bash scripts/transfer_mechanism/component_reset.sh --dry-run
+# 只有显式 --execute 才会训练；本轮不要执行
+bash scripts/transfer_mechanism/modulus_specificity.sh --execute
+bash scripts/transfer_mechanism/component_reset.sh --execute
+bash scripts/transfer_mechanism/analyze_results.sh --dry-run
+```
+
+Framework implemented; formal GPU experiments not started.
+
 ## 6. 行为指标
 
 持续记录每个 task/slot/modulus 的 loss 和 accuracy。

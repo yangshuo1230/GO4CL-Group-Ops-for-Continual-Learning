@@ -68,6 +68,75 @@ def modulus_acc_metrics(
     }
 
 
+def operation_acc_metrics(
+    by_operation: dict[str, dict[str, float]],
+    *,
+    prefix: str,
+) -> dict[str, float]:
+    """Flatten ``EvalResult.by_operation``.
+
+    Every row is stored as ``{prefix}/task{t}/lat{z}/slot{s}`` so task, latent,
+    and slot cannot collapse into one number. ``{prefix}/op{latent}`` is written
+    only when that latent belongs to a single task (the historical key). A
+    mixed-task result does not average those tasks into ``op0``.
+    """
+    rows: list[tuple[int, int, int, float]] = []
+    for key, stats in by_operation.items():
+        parsed = _task_latent_slot(key)
+        if parsed is None:
+            continue
+        acc = stats.get("accuracy")
+        if isinstance(acc, (int, float)) and not isinstance(acc, bool):
+            task, latent, slot = parsed
+            rows.append((task, latent, slot, float(acc)))
+    out: dict[str, float] = {
+        f"{prefix}/task{task}/lat{latent}/slot{slot}": acc
+        for task, latent, slot, acc in rows
+    }
+    by_latent_tasks: dict[int, set[int]] = {}
+    by_latent_acc: dict[int, list[float]] = {}
+    for task, latent, _slot, acc in rows:
+        by_latent_tasks.setdefault(latent, set()).add(task)
+        by_latent_acc.setdefault(latent, []).append(acc)
+    for latent, tasks in sorted(by_latent_tasks.items()):
+        if len(tasks) == 1:
+            values = by_latent_acc[latent]
+            out[f"{prefix}/op{latent}"] = sum(values) / len(values)
+    return out
+
+
+def _task_latent_slot(key: str) -> tuple[int, int, int] | None:
+    """Parse ``task{t}/lat{z}/slot{s}``. Returns None if any id is missing."""
+    task = _int_after(key, "task")
+    latent = _int_after(key, "/lat")
+    slot = _int_after(key, "/slot")
+    if task is None or latent is None or slot is None:
+        return None
+    return task, latent, slot
+
+
+def _int_after(key: str, marker: str) -> int | None:
+    if marker not in key:
+        return None
+    rest = key.split(marker, 1)[1]
+    digits: list[str] = []
+    for ch in rest:
+        if ch.isdigit():
+            digits.append(ch)
+        else:
+            break
+    if not digits:
+        return None
+    return int("".join(digits))
+
+
+def _latent_id_from_op_key(key: str) -> int | None:
+    parsed = _task_latent_slot(key)
+    if parsed is not None:
+        return parsed[1]
+    return _int_after(key, "/lat")
+
+
 def slot_acc_metrics(
     by_slot: dict[int, dict[str, float]],
     *,

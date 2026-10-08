@@ -30,14 +30,60 @@ def resolve_device(name: str | None = None) -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def resolve_checkpoint(job_dir: Path | str, kind: str) -> Path:
-    """Resolve ``best`` / ``final`` (or a literal stem) under ``job_dir/ckpts``.
+SEQUENTIAL_ROLES: dict[str, tuple[str, ...]] = {
+    "theta_A": ("theta_A.pt",),
+    "phase_b_final": ("phase_b_final.pt",),
+    "B_first_stable": ("B_first_stable.pt",),
+    "B_best_val": ("B_best_val.pt",),
+    # Explicit tradeoff role may fall back to the legacy best.pt copy.
+    "AB_tradeoff_best": ("AB_tradeoff_best.pt", "best.pt"),
+}
 
-    Search order matches the original phase-1 mechanisms helper:
+_AMBIGUOUS_SEQUENTIAL = (
+    "This sequential job needs an explicit checkpoint role: "
+    "theta_A, phase_b_final, B_first_stable, B_best_val, or AB_tradeoff_best. "
+    "best.pt is the legacy A/B-tradeoff checkpoint and is not a default."
+)
+
+
+def _is_sequential_job(job_dir: Path) -> bool:
+    ckpt = job_dir / "ckpts"
+    if any((ckpt / name).is_file() for name in ("theta_A.pt", "phase_b_final.pt", "B_best_val.pt")):
+        return True
+    cfg_path = job_dir / "config_resolved.json"
+    if not cfg_path.is_file():
+        return False
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    protocol = str(cfg.get("protocol", ""))
+    return protocol.startswith("sequential")
+
+
+def resolve_checkpoint(job_dir: Path | str, kind: str) -> Path:
+    """Resolve a checkpoint under ``job_dir/ckpts``.
+
+    Phase-1 search order is unchanged:
     final → ``a_only_final.pt`` then ``final.pt``;
     best → ``best.pt`` then ``a_only_best.pt``.
+
+    A sequential job must name a role. ``best`` and ``final`` are rejected
+    there because ``best.pt`` is the A/B tradeoff checkpoint.
     """
-    ckpt_dir = Path(job_dir) / "ckpts"
+    job_dir = Path(job_dir)
+    ckpt_dir = job_dir / "ckpts"
+    if _is_sequential_job(job_dir) and kind in {"best", "final", ""}:
+        raise ValueError(_AMBIGUOUS_SEQUENTIAL)
+    if kind in SEQUENTIAL_ROLES:
+        for name in SEQUENTIAL_ROLES[kind]:
+            path = ckpt_dir / name
+            if path.is_file():
+                return path
+        raise FileNotFoundError(
+            f"no {kind} checkpoint under {ckpt_dir} "
+            f"(looked for {', '.join(SEQUENTIAL_ROLES[kind])})"
+        )
     if kind == "final":
         candidates = [ckpt_dir / "a_only_final.pt", ckpt_dir / "final.pt"]
     elif kind == "best":

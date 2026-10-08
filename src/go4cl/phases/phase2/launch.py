@@ -21,6 +21,8 @@ from go4cl.phases.common import (
 )
 from go4cl.phases.phase2.data import prepare_phase2_dataset
 from go4cl.phases.phase2.grid import ALL_PROTOCOLS, Condition
+from go4cl.train.protocol_impl import canonical_optimizer_transition
+from go4cl.train.protocols import assert_null_task_protocol
 
 # Packed data matches phase 1B; wd=0.3 so the late-grokking modulus (p=23
 # on the default full-overlap seed) still leaves the query-only basin.
@@ -152,6 +154,29 @@ def add_shared_args(
         help="With --fixed-a: train one shared A per model_seed, then every "
         "sequential_ab / sequential_ab_replay job loads that θ_A and only runs phase B.",
     )
+    parser.add_argument(
+        "--optimizer-transition",
+        type=str,
+        default="preserve",
+        choices=["fresh", "preserve"],
+        help="fresh loads θ_A weights and builds a new AdamW for B. "
+        "preserve (default) keeps A's AdamW moments, matching older Phase 2 runs.",
+    )
+
+
+SHARE_A_SWAP_ERROR = (
+    "--share-a cannot be combined with direction swap: after swap the source "
+    "task is no longer fixed across conditions. It is the original Task B, "
+    "which changes with the overlap condition, so one shared checkpoint would "
+    "be the wrong source. fixed-a + swap without --share-a is allowed; each "
+    "condition trains its own source."
+)
+
+
+def assert_share_a_compatible(*, share_a: bool, directions: list[str]) -> None:
+    """Refuse a shared checkpoint whose source task is not fixed across conditions."""
+    if share_a and "swap" in directions:
+        raise ValueError(SHARE_A_SWAP_ERROR)
 
 
 def _require_protocols(names: list[str]) -> list[str]:
@@ -355,6 +380,20 @@ def launch_grid(
     null_task_label = int(getattr(args, "null_task_label", 0))
     fixed_a = bool(getattr(args, "fixed_a", False))
     share_a = bool(getattr(args, "share_a", False))
+    optimizer_transition = canonical_optimizer_transition(
+        getattr(args, "optimizer_transition", "preserve")
+    )
+    assert_share_a_compatible(share_a=share_a, directions=directions)
+    for protocol in protocols:
+        assert_null_task_protocol(
+            protocol,
+            null_task_tokens,
+            replay_ratio=(
+                float(PHASE2.sequential_ab_replay_ratio)
+                if protocol == "sequential_ab_replay"
+                else 0.0
+            ),
+        )
     if share_a and not fixed_a:
         raise SystemExit("--share-a requires --fixed-a (shared A only makes sense when A is identical across ρ)")
     seq_protocols = {"sequential_ab", "sequential_ab_replay"}
@@ -423,6 +462,8 @@ def launch_grid(
             job_id += f"_null{null_task_label:g}_r{null_task_ratio:g}"
         if theta_a_ckpt:
             job_id += "_fromSharedA"
+        if protocol in {"sequential_ab", "sequential_ab_replay", "sequential_ba"}:
+            job_id += f"_opt{optimizer_transition}"
         return TrainJob(
             job_id=job_id,
             data_dir=meta["data_dir"],
@@ -480,6 +521,7 @@ def launch_grid(
                     else 0.0
                 ),
                 "theta_a_ckpt": theta_a_ckpt,
+                "optimizer_transition": optimizer_transition,
             },
             batch_size=batch_size,
             protocol=protocol,
@@ -490,6 +532,7 @@ def launch_grid(
             null_task_ratio=null_task_ratio,
             null_task_label=null_task_label,
             theta_a_ckpt=theta_a_ckpt,
+            optimizer_transition=optimizer_transition,
         )
 
     # Optional phase-0: one shared A per (task_seed, direction, model_seed, size).
@@ -582,6 +625,7 @@ def launch_grid(
         "sizes": [{"d_model": d, "n_layers": n} for d, n in sizes],
         "fixed_a": fixed_a,
         "share_a": share_a,
+        "optimizer_transition": optimizer_transition,
         "wandb_group": wandb_group,
         "jobs": [
             {
@@ -593,6 +637,7 @@ def launch_grid(
                 "d_model": job.d_model,
                 "n_layers": job.n_layers,
                 "theta_a_ckpt": job.theta_a_ckpt,
+                "optimizer_transition": job.optimizer_transition,
             }
             for job in all_jobs_for_manifest
         ],
@@ -657,6 +702,7 @@ def launch_grid(
             "include_test": True,
             "fixed_a": fixed_a,
             "share_a": share_a,
+            "optimizer_transition": optimizer_transition,
         },
         datasets=metas,
         results=results,

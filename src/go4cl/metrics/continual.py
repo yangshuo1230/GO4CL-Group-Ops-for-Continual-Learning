@@ -179,24 +179,36 @@ def summarize_behavior(
 ) -> dict[str, Any]:
     """Summarize one run's eval history.
 
-    Accuracy series prefer held-out test when it was logged, otherwise val.
+    Dynamic accuracy series prefer validation. Test is recorded as an endpoint
+    when it was logged, and is used for the curve only if validation is absent.
     ``forgetting_*`` is max accuracy minus the final accuracy (negative means
     backward improvement). ``jump_*`` is the drop across the task switch.
     ``b_exposure_*`` puts B on a from-scratch-comparable x-axis.
     """
     hist = list(history)
-    a_key = _pick(hist, ("A_test_acc", "A_val_acc"))
-    b_key = _pick(hist, ("B_test_acc", "B_val_acc"))
-    a_loss_key = _pick(hist, ("A_test_loss", "A_val_loss"))
-    b_loss_key = _pick(hist, ("B_test_loss", "B_val_loss"))
+    a_key = _pick(hist, ("A_val_acc", "A_test_acc"))
+    b_key = _pick(hist, ("B_val_acc", "B_test_acc"))
+    a_loss_key = _pick(hist, ("A_val_loss", "A_test_loss"))
+    b_loss_key = _pick(hist, ("B_val_loss", "B_test_loss"))
     out: dict[str, Any] = {
         "protocol": protocol,
         "switch_step": switch_step,
         "n_eval": len(hist),
         "acc_key_A": a_key,
         "acc_key_B": b_key,
+        "curve_split": (
+            "validation"
+            if (b_key or a_key or "").find("val") >= 0 or not (b_key or a_key)
+            else "test"
+        ),
         "gen_threshold": gen_threshold,
     }
+    if hist:
+        last = hist[-1]
+        if isinstance(last.get("A_test_acc"), (int, float)):
+            out["A_test_acc_final"] = float(last["A_test_acc"])
+        if isinstance(last.get("B_test_acc"), (int, float)):
+            out["B_test_acc_final"] = float(last["B_test_acc"])
     a_series = _series(hist, a_key) if a_key else []
     b_series = _series(hist, b_key) if b_key else []
     a_loss = _series(hist, a_loss_key) if a_loss_key else []

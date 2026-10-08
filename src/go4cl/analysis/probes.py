@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import torch
@@ -16,6 +17,16 @@ def _accuracy(logits: torch.Tensor, y: torch.Tensor) -> float:
     return float((logits.argmax(dim=-1) == y).float().mean().item())
 
 
+def _init_probe(probe: nn.Linear, generator: torch.Generator) -> None:
+    """Initialize with ``generator`` only. Does not touch the global RNG."""
+    with torch.no_grad():
+        nn.init.kaiming_uniform_(probe.weight, a=math.sqrt(5), generator=generator)
+        if probe.bias is not None:
+            fan_in = int(probe.weight.shape[1])
+            bound = 1.0 / math.sqrt(fan_in) if fan_in else 0.0
+            nn.init.uniform_(probe.bias, -bound, bound, generator=generator)
+
+
 def fit_linear_probe(
     x_train: torch.Tensor,
     y_train: torch.Tensor,
@@ -26,27 +37,41 @@ def fit_linear_probe(
     steps: int = 400,
     lr: float = 0.05,
     weight_decay: float = 1e-2,
+    seed: int,
 ) -> dict[str, Any]:
-    """Fit a linear classifier with AdamW; report train/eval accuracies."""
+    """Fit a linear classifier with AdamW; report train/eval accuracies.
+
+    ``seed`` initializes the probe from a local CPU generator. ``nn.Linear``
+    would otherwise draw from the global RNG; that draw is discarded.
+    """
     d = x_train.shape[-1]
     device = x_train.device
-    probe = nn.Linear(d, n_classes).to(device)
-    opt = torch.optim.AdamW(probe.parameters(), lr=lr, weight_decay=weight_decay)
-    probe.train()
-    for _ in range(steps):
-        logits = probe(x_train)
-        loss = F.cross_entropy(logits, y_train)
-        opt.zero_grad(set_to_none=True)
-        loss.backward()
-        opt.step()
-    probe.eval()
-    with torch.no_grad():
-        train_acc = _accuracy(probe(x_train), y_train)
-        eval_acc = {
-            name: _accuracy(probe(x_eval[name]), y_eval[name]) for name in x_eval
-        }
-        weight = probe.weight.detach().cpu().clone()
-        bias = probe.bias.detach().cpu().clone() if probe.bias is not None else None
+    rng_state = torch.get_rng_state().clone()
+    try:
+        probe = nn.Linear(d, n_classes)
+        torch.set_rng_state(rng_state)
+        generator = torch.Generator(device="cpu")
+        generator.manual_seed(int(seed))
+        _init_probe(probe, generator)
+        probe = probe.to(device)
+        opt = torch.optim.AdamW(probe.parameters(), lr=lr, weight_decay=weight_decay)
+        probe.train()
+        for _ in range(steps):
+            logits = probe(x_train)
+            loss = F.cross_entropy(logits, y_train)
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            opt.step()
+        probe.eval()
+        with torch.no_grad():
+            train_acc = _accuracy(probe(x_train), y_train)
+            eval_acc = {
+                name: _accuracy(probe(x_eval[name]), y_eval[name]) for name in x_eval
+            }
+            weight = probe.weight.detach().cpu().clone()
+            bias = probe.bias.detach().cpu().clone() if probe.bias is not None else None
+    finally:
+        torch.set_rng_state(rng_state)
     return {
         "train_acc": train_acc,
         "eval_acc": eval_acc,
@@ -54,6 +79,7 @@ def fit_linear_probe(
         "n_classes": n_classes,
         "weight": weight,
         "bias": bias,
+        "seed": int(seed),
     }
 
 
@@ -108,6 +134,7 @@ def run_operand_probes(
     operand_j: int,
     modulus: int,
     steps: int = 400,
+    seed: int = 0,
 ) -> dict[str, Any]:
     """Probe xi%p, xj%p, (xi+xj)%p from a residual representation."""
     device = train_resid.device
@@ -129,6 +156,7 @@ def run_operand_probes(
             y_ev,
             n_classes=modulus,
             steps=steps,
+            seed=int(seed),
         )
         # Drop bulky tensors from JSON-facing report; keep for optional callers.
         out[key] = {
@@ -136,6 +164,7 @@ def run_operand_probes(
             "eval_acc": fitted["eval_acc"],
             "n_train": fitted["n_train"],
             "n_classes": fitted["n_classes"],
+            "seed": int(fitted["seed"]),
         }
         out[f"_{key}_weight"] = fitted["weight"]
         out[f"_{key}_bias"] = fitted["bias"]
@@ -176,6 +205,7 @@ def run_operand_probes_with_random_control(
         operand_j=operand_j,
         modulus=modulus,
         steps=steps,
+        seed=int(random_seed),
     )
 
     cfg = ModelConfig.from_dict(trained_model.cfg.to_dict())
@@ -192,6 +222,7 @@ def run_operand_probes_with_random_control(
         operand_j=operand_j,
         modulus=modulus,
         steps=steps,
+        seed=int(random_seed) + 1,
     )
 
     # Strip private weight keys from nested reports for JSON
@@ -259,6 +290,7 @@ def run_layer_probes_with_random_control(
             operand_j=operand_j,
             modulus=modulus,
             steps=steps,
+            seed=int(random_seed),
         )
         random = run_operand_probes(
             train_resid=rand_train[li],
@@ -269,6 +301,7 @@ def run_layer_probes_with_random_control(
             operand_j=operand_j,
             modulus=modulus,
             steps=steps,
+            seed=int(random_seed) + 1,
         )
 
         def _public(d: dict[str, Any]) -> dict[str, Any]:

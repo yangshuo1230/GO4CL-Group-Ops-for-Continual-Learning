@@ -130,6 +130,12 @@ def _add_phase3(sub: argparse._SubParsersAction) -> None:
     p_forget.set_defaults(_phase_runner=run_forget_types)
 
 
+def _add_transfer_mechanism(sub: argparse._SubParsersAction) -> None:
+    from go4cl.phases.transfer_mechanism.launch import register_parser
+
+    register_parser(sub)
+
+
 def _add_task_partition(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "task-partition",
@@ -338,6 +344,7 @@ def main(argv: list[str] | None = None) -> None:
     _add_phase3(sub)
     _add_analyze(sub)
     _add_task_partition(sub)
+    _add_transfer_mechanism(sub)
 
     p_gen = sub.add_parser("generate-data", help="Generate fixed A/B datasets + manifest")
     p_gen.add_argument("--out", type=str, required=True)
@@ -416,6 +423,10 @@ def main(argv: list[str] | None = None) -> None:
         run_smoke(args)
     elif args.cmd == "task-partition":
         from go4cl.phases.task_partition.run import run_from_args
+
+        run_from_args(args)
+    elif args.cmd == "transfer-mechanism":
+        from go4cl.phases.transfer_mechanism.launch import run_from_args
 
         run_from_args(args)
     else:
