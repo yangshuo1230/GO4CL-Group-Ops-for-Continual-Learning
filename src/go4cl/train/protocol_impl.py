@@ -295,6 +295,11 @@ def run_sequential_ab(
     session.metrics["forgetting_A_from_switch"] = forgetting(
         max_acc_a, session.metrics["after_b"]["A_test_acc"]
     )
+    session.metrics["retention_A_from_switch"] = (
+        session.metrics["after_b"]["A_test_acc"] / max_acc_a
+        if max_acc_a > 0
+        else None
+    )
     session.metrics["optimizer_transition"] = mode
     session.metrics["primary_event"] = "B_t_gen"
     session.metrics["events_phase_b"] = dict(state_b.events)

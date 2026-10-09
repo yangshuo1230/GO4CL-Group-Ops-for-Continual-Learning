@@ -268,6 +268,11 @@ def run_protocol(
             session.history,
             switch_step=metrics.get("switch_step"),
         )
+        # A shared theta_A checkpoint may not appear in session.history.
+        # History-only retention can therefore look high after A has already
+        # collapsed. The explicit switch endpoints are authoritative.
+        if metrics.get("retention_A_from_switch") is not None:
+            behavior["retention_A"] = metrics["retention_A_from_switch"]
         metrics["behavior"] = behavior
         if "forgetting_A" in behavior:
             metrics["forgetting_A"] = behavior["forgetting_A"]

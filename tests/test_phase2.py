@@ -302,6 +302,18 @@ def test_short_sequential_and_joint_on_packed_data(tmp_path: Path) -> None:
     )
     assert resolved["train"]["optimizer_transition"] == "preserve"
     assert "forgetting_A_from_switch" in seq.metrics
+    assert "retention_A_from_switch" in seq.metrics
+    if seq.metrics["A_test_acc_at_switch"] > 0:
+        expected_retention = (
+            seq.metrics["after_b"]["A_test_acc"]
+            / seq.metrics["A_test_acc_at_switch"]
+        )
+        assert seq.metrics["retention_A_from_switch"] == pytest.approx(
+            expected_retention
+        )
+        assert seq.metrics["behavior"]["retention_A"] == pytest.approx(
+            expected_retention
+        )
     assert seq.metrics["behavior"]["n_eval"] >= 1
     assert (tmp_path / "seq" / "eval_history.jsonl").is_file()
     assert (tmp_path / "seq" / "ckpts" / "theta_A.pt").is_file()

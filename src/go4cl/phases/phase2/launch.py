@@ -194,6 +194,22 @@ def _behavior(result: dict[str, Any], key: str) -> Any:
     return "" if value is None else value
 
 
+def _retention_a(result: dict[str, Any]) -> Any:
+    """Return switch-to-final A retention, including for legacy result files."""
+    metrics = result.get("metrics") or {}
+    explicit = metrics.get("retention_A_from_switch")
+    if isinstance(explicit, (int, float)):
+        return explicit
+
+    final = metrics.get("A_test_acc")
+    drop = metrics.get("forgetting_A_from_switch")
+    if isinstance(final, (int, float)) and isinstance(drop, (int, float)):
+        at_switch = final + drop
+        if at_switch > 0:
+            return final / at_switch
+    return _behavior(result, "retention_A")
+
+
 def _csv_row(result: dict[str, Any]) -> list[Any]:
     cfg = result.get("wandb_config") or {}
     metrics = result.get("metrics") or {}
@@ -221,7 +237,7 @@ def _csv_row(result: dict[str, Any]) -> list[Any]:
         metrics.get("forgetting_B_from_switch", ""),
         _behavior(result, "jump_A"),
         _behavior(result, "forget_rate_A"),
-        _behavior(result, "retention_A"),
+        _retention_a(result),
         _behavior(result, "b_exposure_auc"),
         _behavior(result, "b_exposure_steps_to_gen"),
         _behavior(result, "grok_order"),
