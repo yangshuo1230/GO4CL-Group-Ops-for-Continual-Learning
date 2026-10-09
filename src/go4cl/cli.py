@@ -67,12 +67,20 @@ def _add_phase1(sub: argparse._SubParsersAction) -> None:
 
 def _add_phase2(sub: argparse._SubParsersAction) -> None:
     from go4cl.phases.phase2 import (
+        add_analyze_args,
         add_capacity_args,
+        add_causal_args,
+        add_coverage_args,
+        add_patch_args,
         add_protocols_args,
         add_relation_matrix_args,
+        run_analyze_modulus,
         run_capacity,
+        run_causal_modulus,
+        run_param_patch_smoke,
         run_protocols,
         run_relation_matrix,
+        run_replay_coverage,
     )
 
     p2 = sub.add_parser("phase2", help="Stage 2: dual-task behavioral dynamics")
@@ -95,6 +103,34 @@ def _add_phase2(sub: argparse._SubParsersAction) -> None:
     )
     add_capacity_args(p_cap)
     p_cap.set_defaults(_phase_runner=run_capacity)
+
+    p_mod = p2_sub.add_parser(
+        "analyze-modulus",
+        help="Matched per-modulus curves for an existing Phase 2 stamp",
+    )
+    add_analyze_args(p_mod)
+    p_mod.set_defaults(_phase_runner=run_analyze_modulus)
+
+    p_causal = p2_sub.add_parser(
+        "causal-modulus",
+        help="Fixed-B modulus causal grid (dry-run unless --execute)",
+    )
+    add_causal_args(p_causal)
+    p_causal.set_defaults(_phase_runner=run_causal_modulus)
+
+    p_cov = p2_sub.add_parser(
+        "replay-coverage",
+        help="Fixed replay-ratio coverage grid (dry-run unless --execute)",
+    )
+    add_coverage_args(p_cov)
+    p_cov.set_defaults(_phase_runner=run_replay_coverage)
+
+    p_patch = p2_sub.add_parser(
+        "param-patch",
+        help="CPU smoke of the layer-wise parameter patch tool",
+    )
+    add_patch_args(p_patch)
+    p_patch.set_defaults(_phase_runner=run_param_patch_smoke)
 
 
 def _add_phase3(sub: argparse._SubParsersAction) -> None:

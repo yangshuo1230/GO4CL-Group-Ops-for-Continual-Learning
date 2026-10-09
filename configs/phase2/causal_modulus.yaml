@@ -1,0 +1,16 @@
+# Fixed-B modulus causal grid. Dry-run unless --execute is passed.
+experiment: causal_modulus
+targets: [23, 41]
+protocols: [b_only, same_p_to_b, different_p_to_b]
+constructions: [0, 1]
+model_seeds: [0, 1, 2]
+n_main_runs: 36
+optimizer_transition: fresh
+replay_ratio: 0.0
+mastery_threshold: 0.9
+steps: 100000
+batch_size: 8192
+train_frac: 0.8
+n_aliases: 16
+primary_metric: target-operation accuracy
+out: runs/phase2/causal_modulus/formal

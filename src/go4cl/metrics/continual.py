@@ -76,6 +76,29 @@ def _first_reach(series: list[tuple[float, float]], threshold: float) -> float |
     return None
 
 
+def stable_time_to_threshold(
+    series: list[tuple[float, float]],
+    threshold: float = 0.9,
+    window: int = 5,
+) -> float | None:
+    """Exposure of the eval that completes ``window`` consecutive hits.
+
+    This is the project-wide stable-generalization time. A missing return value
+    means the run is censored at the last eval, not that the row should be dropped.
+    The x value is whatever the caller put on the series (global step or B exposure).
+    """
+    width = int(window)
+    if width < 1:
+        raise ValueError(f"stable window must be >= 1, got {window}")
+    if len(series) < width:
+        return None
+    for index in range(width - 1, len(series)):
+        chunk = series[index - width + 1 : index + 1]
+        if all(float(value) >= float(threshold) for _, value in chunk):
+            return float(chunk[-1][0])
+    return None
+
+
 def _steepest_slope(series: list[tuple[float, float]]) -> float:
     """Most negative per-step slope (0 if the curve never falls)."""
     best = 0.0

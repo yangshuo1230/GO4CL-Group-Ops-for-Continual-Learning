@@ -86,6 +86,8 @@ def run_protocol(
     eval_n_per_operation: int = 256,
     theta_a_ckpt: str | None = None,
     optimizer_transition: str = "preserve",
+    a_mastery: dict | None = None,
+    replay_coverage: dict | None = None,
 ) -> ProtocolResult:
     """
     Run one of the plan's training protocols on a fixed dataset root.
@@ -219,6 +221,7 @@ def run_protocol(
         switch_on=switch_on,
         packed_a=packed_a,
         resolved_sampler_seed=resolved_sampler_seed,
+        replay_coverage=replay_coverage,
     )
     metrics["switch_on"] = switch_on
 
@@ -234,6 +237,7 @@ def run_protocol(
                 session,
                 theta_a_ckpt=theta_a_ckpt,
                 optimizer_transition=optimizer_mode,
+                a_mastery=a_mastery,
             )
         elif protocol == "sequential_ab_replay":
             run_sequential_ab(
@@ -242,6 +246,10 @@ def run_protocol(
                 theta_a_ckpt=theta_a_ckpt,
                 optimizer_transition=optimizer_mode,
             )
+            if replay_coverage:
+                from go4cl.phases.phase2.replay_coverage import attach_coverage_metrics
+
+                attach_coverage_metrics(session, replay_coverage)
         elif protocol == "a_only_continued":
             run_continued_control(session)
         elif protocol == "sequential_ba":
@@ -271,7 +279,12 @@ def run_protocol(
         # A shared theta_A checkpoint may not appear in session.history.
         # History-only retention can therefore look high after A has already
         # collapsed. The explicit switch endpoints are authoritative.
-        if metrics.get("retention_A_from_switch") is not None:
+        if metrics.get("a_mastery_valid") is False:
+            behavior["retention_A"] = None
+            behavior["retention_note"] = (
+                "invalid A mastery; retention_A_from_switch was not computed"
+            )
+        elif metrics.get("retention_A_from_switch") is not None:
             behavior["retention_A"] = metrics["retention_A_from_switch"]
         metrics["behavior"] = behavior
         if "forgetting_A" in behavior:

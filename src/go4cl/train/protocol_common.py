@@ -105,6 +105,8 @@ class ProtocolSession:
     switch_on: str
     packed_a: Any
     resolved_sampler_seed: int
+    # Set only by the fixed-coverage replay grid. None keeps the normal replay loader.
+    replay_coverage: dict | None = None
     history: list[dict[str, Any]] = field(default_factory=list)
     final_step: int = 0
 

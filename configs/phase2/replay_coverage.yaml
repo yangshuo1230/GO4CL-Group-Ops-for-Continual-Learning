@@ -1,0 +1,25 @@
+# Fixed replay ratio, varying unique A coverage. Dry-run unless --execute.
+experiment: replay_coverage
+replay_ratio: 0.1
+coverages: [0.01, 0.05, 0.10, 0.25, 0.50, 1.00]
+conditions:
+  - s0_o0_m0
+  - s0.5_o0.5_m1
+model_seeds: [0, 1, 2]
+task_seed: 0
+fixed_a: true
+buffer_seed: 0
+n_main_runs: 36
+optimizer_transition: fresh
+steps: 100000
+batch_size: 8192
+train_frac: 0.8
+metrics:
+  - A_test_all
+  - A_train_covered
+  - A_train_uncovered
+  - retention_A_from_switch
+  - forgetting_A_from_switch
+  - B_auc
+  - B_stable_t90
+out: runs/phase2/replay_coverage/formal

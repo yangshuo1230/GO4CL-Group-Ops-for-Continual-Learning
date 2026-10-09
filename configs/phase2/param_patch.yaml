@@ -1,0 +1,14 @@
+# No-train layer-wise patch catalog. The smoke command evaluates a tiny CPU model.
+experiment: param_patch
+patches:
+  - digit_embedding
+  - control_embedding
+  - attention_layer_i
+  - mlp_layer_i
+  - output
+  - digit_embedding+mlp_layer_0
+  - all_mlp
+  - all_attention
+  - full_theta_A
+digit_plus_mlp_layer: 0
+smoke_out: runs/phase2/param_patch/smoke

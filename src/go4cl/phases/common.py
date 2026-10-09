@@ -172,6 +172,8 @@ def execute_a_only_job(job: TrainJob) -> dict[str, Any]:
             },
             theta_a_ckpt=job.theta_a_ckpt,
             optimizer_transition=job.optimizer_transition,
+            a_mastery=job.wandb_config.get("a_mastery"),
+            replay_coverage=job.wandb_config.get("replay_coverage"),
         )
         result["status"] = "ok"
         result["metrics"] = proto.metrics

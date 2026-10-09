@@ -47,8 +47,11 @@ _AMBIGUOUS_SEQUENTIAL = (
 
 
 def _is_sequential_job(job_dir: Path) -> bool:
+    """True only for A→B sequential runs (not b_only, which may also write B_* ckpts)."""
     ckpt = job_dir / "ckpts"
-    if any((ckpt / name).is_file() for name in ("theta_A.pt", "phase_b_final.pt", "B_best_val.pt")):
+    # theta_A / phase_b_final are sequential-specific; B_best_val alone is not
+    # (b_only also writes B_best_val / B_first_stable).
+    if any((ckpt / name).is_file() for name in ("theta_A.pt", "phase_b_final.pt")):
         return True
     cfg_path = job_dir / "config_resolved.json"
     if not cfg_path.is_file():
@@ -173,7 +176,13 @@ def _manifest_dir(value: Any) -> Path | None:
     return None
 
 
-def operations_from_manifest(manifest: DataManifest) -> list[OperationRef]:
+def operations_from_manifest(
+    manifest: DataManifest, *, task: str = "A"
+) -> list[OperationRef]:
+    task = str(task).upper()
+    if task not in {"A", "B"}:
+        raise ValueError(f"task must be A|B, got {task}")
+    spec = manifest.task_pair.task_a if task == "A" else manifest.task_pair.task_b
     return [
         OperationRef(
             latent_id=int(op.latent_id),
@@ -182,7 +191,7 @@ def operations_from_manifest(manifest: DataManifest) -> list[OperationRef]:
             operand_j=int(op.j),
             slot=int(op.slot),
         )
-        for op in manifest.task_pair.task_a.operations
+        for op in spec.operations
     ]
 
 
@@ -259,9 +268,24 @@ class AnalysisContext:
     model: Any = None
     payload: dict[str, Any] | None = None
     aliases_per_pair: int = 4
+    task: str = "A"
+
+    @property
+    def task_id(self) -> int:
+        return 0 if str(self.task).upper() == "A" else 1
+
+    @property
+    def task_spec(self):
+        return (
+            self.manifest.task_pair.task_a
+            if str(self.task).upper() == "A"
+            else self.manifest.task_pair.task_b
+        )
 
     def disk_dataset(self, split: SplitName) -> ModularAdditionDataset:
-        return ModularAdditionDataset.from_disk(self.data_dir, "A", split, 0)
+        return ModularAdditionDataset.from_disk(
+            self.data_dir, str(self.task).upper(), split, 0
+        )
 
     def analysis_examples(
         self, *, split: SplitName, target_latent_ids: list[int]
@@ -269,7 +293,7 @@ class AnalysisContext:
         from go4cl.data.context import build_analysis_dataset
 
         return build_analysis_dataset(
-            self.manifest.task_pair.task_a,
+            self.task_spec,
             self.manifest.residue_splits,
             split=split,
             context_mode="packed_id",
@@ -290,7 +314,9 @@ class AnalysisContext:
             examples = self.analysis_examples(
                 split=split, target_latent_ids=[op.latent_id]
             )
-            return ModularAdditionDataset.from_examples(examples, task_id=0)
+            return ModularAdditionDataset.from_examples(
+                examples, task_id=self.task_id
+            )
         return filter_by_operation(ds_full, latent_id=op.latent_id, slot=op.slot)
 
     def operation_loader(
@@ -315,8 +341,12 @@ def load_analysis_context(
     device: torch.device | str | None = None,
     aliases_per_pair: int = 4,
     load_model: bool = True,
+    task: str = "A",
 ) -> AnalysisContext:
     job_dir = Path(job_dir)
+    task = str(task).upper()
+    if task not in {"A", "B"}:
+        raise ValueError(f"task must be A|B, got {task}")
     if isinstance(device, str):
         device = torch.device(device)
     if device is None:
@@ -324,7 +354,7 @@ def load_analysis_context(
     ckpt_path = resolve_checkpoint(job_dir, ckpt_kind)
     data_dir = resolve_data_dir(job_dir)
     manifest = DataManifest.load(data_dir / "manifest.json")
-    ops = operations_from_manifest(manifest)
+    ops = operations_from_manifest(manifest, task=task)
     model = None
     payload: dict[str, Any] | None = None
     if load_model:
@@ -342,6 +372,7 @@ def load_analysis_context(
         model=model,
         payload=payload,
         aliases_per_pair=int(aliases_per_pair),
+        task=task,
     )
 
 

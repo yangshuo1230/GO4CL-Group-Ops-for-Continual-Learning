@@ -133,6 +133,7 @@ def _analyze_op(
     ablation_ks: list[int] | None,
     skip_composition: bool,
     analysis_builder=None,
+    task_id: int = 0,
 ) -> dict[str, Any]:
     p = op.modulus
     i, j = op.operand_i, op.operand_j
@@ -150,7 +151,7 @@ def _analyze_op(
                 split=split,
                 target_latent_ids=[op.latent_id],
             )
-            return _DS.from_examples(examples, task_id=0)
+            return _DS.from_examples(examples, task_id=int(task_id))
         return filter_by_operation(
             ds_full, latent_id=op.latent_id, slot=op.slot
         )
@@ -461,6 +462,7 @@ def run_mechanisms(args: argparse.Namespace) -> None:
     device = _device(args.device)
     job_dir = Path(args.job_dir)
     ckpt_kind = str(args.ckpt_kind)
+    task = str(getattr(args, "task", "A")).upper()
     layers = list(getattr(args, "layers", None) or DEFAULT_MECH_LAYERS)
     probe_steps = int(args.probe_steps)
     max_batches = args.max_batches
@@ -476,6 +478,7 @@ def run_mechanisms(args: argparse.Namespace) -> None:
         ckpt_kind=ckpt_kind,
         device=device,
         aliases_per_pair=4,
+        task=task,
     )
     ckpt_path = ctx.ckpt_path
     data_dir = ctx.data_dir
@@ -484,7 +487,7 @@ def run_mechanisms(args: argparse.Namespace) -> None:
 
     print(f"[phase1/mechanisms] out={out_root}")
     print(f"[phase1/mechanisms] job={job_dir.name}")
-    print(f"[phase1/mechanisms] ckpt={ckpt_path.name} kind={ckpt_kind}")
+    print(f"[phase1/mechanisms] ckpt={ckpt_path.name} kind={ckpt_kind} task={task}")
     print(f"[phase1/mechanisms] data={data_dir.name}")
     print(
         f"[phase1/mechanisms] ops="
@@ -495,9 +498,9 @@ def run_mechanisms(args: argparse.Namespace) -> None:
     model = ctx.model
     payload = ctx.payload or {}
 
-    train_full = ModularAdditionDataset.from_disk(data_dir, "A", "train", 0)
-    val_full = ModularAdditionDataset.from_disk(data_dir, "A", "val", 0)
-    test_full = ModularAdditionDataset.from_disk(data_dir, "A", "test", 0)
+    train_full = ctx.disk_dataset("train")
+    val_full = ctx.disk_dataset("val")
+    test_full = ctx.disk_dataset("test")
 
     def _analysis_builder(*, split: str, target_latent_ids: list[int]):
         return ctx.analysis_examples(
@@ -522,6 +525,7 @@ def run_mechanisms(args: argparse.Namespace) -> None:
             ablation_ks=ablation_ks,
             skip_composition=skip_composition,
             analysis_builder=_analysis_builder,
+            task_id=ctx.task_id,
         )
         s = rep["summary"]
         print(
@@ -554,6 +558,7 @@ def run_mechanisms(args: argparse.Namespace) -> None:
             "job_dir": str(job_dir),
             "ckpt_path": str(ckpt_path),
             "ckpt_kind": ckpt_kind,
+            "task": task,
             "data_dir": str(data_dir),
             "layers": layers,
             "probe_steps": probe_steps,
@@ -685,6 +690,7 @@ def run_mechanisms(args: argparse.Namespace) -> None:
         "# 1C · multi-op mechanisms\n",
         f"**Job:** `{job_dir.name}`  ",
         f"**Checkpoint:** `{ckpt_kind}` (`{ckpt_path.name}`)  ",
+        f"**Task:** `{task}`  ",
         f"**Data:** `{data_dir.name}`\n",
         "## Comparison verdict\n",
         f"- compose @ L0: **{comparison['compose_at_L0']}**",
@@ -759,8 +765,15 @@ def add_mechanisms_args(parser: argparse.ArgumentParser) -> None:
         "--ckpt-kind",
         type=str,
         default="best",
-        choices=["final", "best"],
-        help="Which checkpoint to analyze",
+        help="Checkpoint role: final|best for single-task; sequential roles "
+        "theta_A|phase_b_final|B_first_stable|B_best_val|AB_tradeoff_best.",
+    )
+    parser.add_argument(
+        "--task",
+        type=str,
+        default="A",
+        choices=["A", "B"],
+        help="Which task's operations/eval sets to analyze (default A).",
     )
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument(

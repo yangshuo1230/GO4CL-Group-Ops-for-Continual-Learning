@@ -1,0 +1,31 @@
+# Two initialization seeds; data, evaluation and sampling seeds are shared.
+seeds: [0, 1]
+data_seed: 20261009
+sampler_seed: 1701
+eval_seed: 2701
+diagnostic_seed: 3701
+model:
+  n_layers: 3
+  d_model: 64
+  n_heads: 4
+  d_mlp: 256
+  dropout: 0.0
+  activation: relu
+train:
+  max_steps: 100000
+  batch_size: 8192
+  lr: 0.001
+  weight_decay: 0.3
+  grad_clip: 1.0
+  compile_model: true
+eval_per_operation: 512
+mastery_accuracy: 0.95
+mastery_window: 5
+require_source_mastery: true
+checkpoint_early_every: 100
+checkpoint_middle_every: 500
+checkpoint_late_every: 2000
+gradient_steps: [0, 100, 500, 1000, 5000, 10000, 20000, 50000, 100000]
+diagnostic_batch_size: 512
+replay_ratios: [0.005, 0.01, 0.02, 0.05]
+component_groups: [digit_embedding, control_embedding, attention, mlp, output]

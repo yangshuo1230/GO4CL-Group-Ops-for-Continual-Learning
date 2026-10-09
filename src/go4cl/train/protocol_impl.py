@@ -111,6 +111,19 @@ def _phase_b_loader(session: ProtocolSession, replay_ratio: float):
     if session.packed_a is None:
         raise ValueError("sequential_ab_replay requires packed_online train loaders")
     manifest = DataManifest.load(session.data_root / "manifest.json")
+    coverage = getattr(session, "replay_coverage", None)
+    if coverage:
+        from go4cl.data.packed import CoverageReplayLoader
+
+        return CoverageReplayLoader(
+            manifest.task_pair.task_a,
+            manifest.task_pair.task_b,
+            manifest.residue_splits,
+            batch_size=int(session.train_cfg.batch_size or 0),
+            seed=session.resolved_sampler_seed + 11_017,
+            frac_a=float(replay_ratio),
+            train_pairs_by_latent=coverage["train_pairs_by_latent"],
+        )
     return MixedPackedReplayLoader(
         manifest.task_pair.task_a,
         manifest.task_pair.task_b,
@@ -172,12 +185,35 @@ def phase_b_optimizer(
     return opt, mode
 
 
+def a_ops_mastered(
+    history: list[dict],
+    op_keys: list[str],
+    threshold: float,
+) -> bool:
+    """True when the latest eval has every listed A operation at or above threshold."""
+    if not history or not op_keys:
+        return False
+    last = history[-1]
+    return all(float(last.get(key, -1.0)) >= float(threshold) for key in op_keys)
+
+
+def _mastery_stop(op_keys: list[str], threshold: float):
+    keys = list(op_keys)
+    limit = float(threshold)
+
+    def _stop(state) -> bool:
+        return a_ops_mastered(state.eval_history, keys, limit)
+
+    return _stop
+
+
 def run_sequential_ab(
     session: ProtocolSession,
     *,
     replay_ratio: float = 0.0,
     theta_a_ckpt: str | None = None,
     optimizer_transition: str = "preserve",
+    a_mastery: dict | None = None,
 ) -> None:
     """A→B sequential. If ``theta_a_ckpt`` is set, skip phase A and load that checkpoint.
 
@@ -226,6 +262,17 @@ def run_sequential_ab(
         )
     else:
         stop_first = switch_stop(session.switch_on)
+        if a_mastery is not None:
+            mastery_fn = _mastery_stop(
+                list(a_mastery["keys"]), float(a_mastery["threshold"])
+            )
+            previous_stop = stop_first
+
+            def stop_first(state, _prev=previous_stop, _mastery=mastery_fn):  # type: ignore[misc]
+                if _mastery(state):
+                    return True
+                return False if _prev is None else bool(_prev(state))
+
         cfg_a = TrainConfig(**{**session.train_cfg.__dict__, "max_steps": session.steps})
         seg_a = train_segment(
             session.model,
@@ -254,6 +301,23 @@ def run_sequential_ab(
         )
         if mode == "fresh":
             opt_a = None
+        if a_mastery is not None:
+            mastered = a_ops_mastered(
+                seg_a.state.eval_history,
+                list(a_mastery["keys"]),
+                float(a_mastery["threshold"]),
+            )
+            session.metrics["a_mastery_valid"] = bool(mastered)
+            session.metrics["a_mastery_threshold"] = float(a_mastery["threshold"])
+            if not mastered:
+                session.metrics["invalid_reason"] = (
+                    "A did not reach the per-operation mastery threshold; "
+                    "B was not started and this run is excluded from formal stats"
+                )
+                session.metrics["optimizer_transition"] = mode
+                session.metrics["retention_A_from_switch"] = None
+                session.metrics["forgetting_A_from_switch"] = None
+                return
         session.metrics["after_a"] = session.eval_both("after_a")
         session.metrics["switch_step"] = start_step
         session.metrics["events_phase_a"] = dict(seg_a.state.events)

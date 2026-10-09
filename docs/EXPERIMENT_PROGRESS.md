@@ -138,6 +138,7 @@
 | 2026-10-08 | **顺序±replay 权重差分（事后）**：`scripts/phase2/weight_delta_switch.py` 对比 `theta_A`→`final`。产物 [`20261006_131444/weight_delta_switch/`](../runs/phase2/relation_matrix/20261006_131444/weight_delta_switch/)。变化主要集中在 **digit emb + L0/L1 MLP + head**；replay 并未整体缩小 ‖ΔW‖，失败格与成功格总变化量接近 |
 | 2026-10-08 | **`--fixed-a` / `--share-a`**：同 seed 不同 ρ 共用同一 Task A；`--share-a` 先训共享 `θ_A` 再只跑 B。无 replay seed 网格 [`20261008_135656/`](../runs/phase2/relation_matrix/20261008_135656/) 34/34 ok（legacy A-随-ρ，sequential 无 replay，A 几乎全忘） |
 | 2026-10-08 | **共享 A + 10% replay** [`20261008_184031/`](../runs/phase2/relation_matrix/20261008_184031/)：`--fixed-a --share-a --protocols sequential_ab_replay`，ms1/2，17 格（与无 replay seed 网格相同），36/36 ok。共享 A 模数固定 `{23,31,41,53}`（A_test 切 B 前 ≈0.980/0.994）。34 个 B-only：mean A 按 m 为 0.926 / 0.969 / 0.987；B 均 ≈0.99。A&lt;0.9 仅 **3/34**，全是丢掉 **p=53**、宏观卡在 ≈0.75：`s0_o0_m0` ms1、`s0.5_o0_m0` ms1、`s1_o0_m0.5` ms2（同格另一 seed 均 ≥0.92）。对照 legacy replay [`20261006_131444/`](../runs/phase2/relation_matrix/20261006_131444/)：A 随 ρ 变，m=0.5 的 A 为 `{29,37,43,53}`，失败 4 格（`s0_o0_m0.5` / `s0_o0.5_m0.5` / `s1_o0_m0.5` / `s1_o0.5_m0.5`，A≈0.45–0.75，常见死模 p=43）。同名 4 格在共享 A 下 7/8 seed ≥0.97，仅 `s1_o0_m0.5` ms2 仍挂。失败形态两次相同（1/4 op 永久归零）；ρ 标签上的 m=0.5 vs m=0「反转」来自 **A/B 模数集合不同**，不是 m 本身固有难易 |
+| 2026-10-09 | **next80_formal 机理套件启动**：在代表 ckpt 上跑 1C `phase1 mechanisms`（`theta_A` / `phase_b_final` × task A/B）。脚本 `scripts/phase2/run_next80_mech_suite.sh`，产物 [`next80_formal/mech_suite/`](../runs/phase2/next80_formal/mech_suite/)。CLI 扩展：`--ckpt-kind` 支持 sequential 角色；`--task A\|B` |
 | 2026-10-08 | **Forward transfer 机理框架**：`src/go4cl/phases/transfer_mechanism/`。模数特异性（`fixed_a`，`b_only`/`sequential_ab`）与 checkpoint mixing（12 个 intervention，fresh optimizer，`replay_ratio=0`）。Framework implemented; formal GPU experiments not started. 未改已有实验结果，smoke 数值不作结论 |
 | 2026-10-08 | **实验有效性修复（未重跑）**：拒绝 `share-a`+`swap`；sequential 记录 `optimizer_transition=fresh\|preserve`（旧 Phase 2 默认仍为 preserve）；B 学会改为 `B_t_gen` / `B_first_stable.pt`；机理分析共用 analysis bundle；探针使用局部 seed；checkpoint 必须显式指定 role；val 选、test 确认。原始 JSON/CSV 未改 |
 
@@ -214,3 +215,13 @@ bash scripts/transfer_mechanism/component_reset.sh --dry-run
 ```
 
 真正开跑时才把 `--dry-run` 换成 `--execute`。本轮没有执行这些命令。
+
+## 下一阶段：逐模数分析与三个未开跑网格
+
+`01_core_fresh` 的逐模数 / 逐 operation 曲线在 `runs/phase2/next80_formal/01_core_fresh/modulus_operation_analysis/`。Sequential 横轴是 `global_step - switch_step`。stable t90 缺测记为 censored，不从汇总里删行。逐模数 loss 在原始 history 里不存在。
+
+三个正式网格都只做了 dry-run，没有启动 GPU 训练：
+
+- 固定 B 模数因果：36 个主 job（B-only 去重后 12，A checkpoint 24）。`bash scripts/phase2/causal_modulus.sh --execute --out runs/phase2/causal_modulus/formal`
+- 固定 replay ratio 的 coverage：36 个主 job，另有 3 个共享 theta_A。`bash scripts/phase2/replay_coverage.sh --execute --out runs/phase2/replay_coverage/formal`
+- 参数 patch 只评估、不训练。CPU smoke：`bash scripts/phase2/param_patch_smoke.sh`

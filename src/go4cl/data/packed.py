@@ -220,6 +220,114 @@ class MixedPackedReplayLoader:
         return _torch_batch(merged)
 
 
+class CoverageReplayLoader:
+    """A/B replay mix whose A packs come from a per-operation residue subset.
+
+    B keeps the full residue split. ``frac_a`` is the same at every coverage,
+    so each step replays the same number of A examples. A smaller subset is
+    drawn with replacement from ``train_pairs_by_latent``.
+    """
+
+    def __init__(
+        self,
+        task_a: TaskSpec,
+        task_b: TaskSpec,
+        splits: dict[int, ResiduePairSplit],
+        *,
+        batch_size: int,
+        seed: int = 0,
+        frac_a: float = 0.1,
+        train_pairs_by_latent: dict[int, list | tuple],
+    ) -> None:
+        if task_a.n_ops != task_b.n_ops:
+            raise ValueError(
+                f"replay mix tasks must share n_ops, got {task_a.n_ops} and {task_b.n_ops}"
+            )
+        n_ops = task_a.n_ops
+        if batch_size < 2 * n_ops or batch_size % n_ops != 0:
+            raise ValueError(
+                f"replay batch_size={batch_size} must be a multiple of n_ops={n_ops} "
+                "and at least 2 packs so A and B can both appear"
+            )
+        self.task_a = task_a
+        self.task_b = task_b
+        self.batch_size = int(batch_size)
+        self.n_ops = n_ops
+        self.n_packs = self.batch_size // n_ops
+        self.frac_a_requested = float(frac_a)
+        self.n_packs_a, self.n_packs_b = replay_pack_counts(self.n_packs, frac_a)
+        self.frac_a = self.n_packs_a / self.n_packs
+        self.seed = int(seed)
+        restricted = restrict_train_pairs(task_a, splits, train_pairs_by_latent)
+        self._builder_a = ContextBuilder(task_a, restricted)
+        self._builder_b = ContextBuilder(task_b, splits)
+        self.dataset = _PackedLen(self.n_packs)
+        self.train_pairs_by_latent = {
+            int(latent): tuple((int(a), int(b)) for a, b in pairs)
+            for latent, pairs in train_pairs_by_latent.items()
+        }
+
+    def __iter__(self) -> Iterator[dict[str, torch.Tensor]]:
+        rng_a = np.random.default_rng(self.seed)
+        rng_b = np.random.default_rng(self.seed + 10_007)
+        while True:
+            yield self._next_batch(rng_a, rng_b)
+
+    def _next_batch(
+        self, rng_a: np.random.Generator, rng_b: np.random.Generator
+    ) -> dict[str, torch.Tensor]:
+        part_a = self._builder_a.sample_train_batch(rng_a, self.n_packs_a)
+        part_b = self._builder_b.sample_train_batch(rng_b, self.n_packs_b)
+        merged = {
+            key: np.concatenate([part_a[key], part_b[key]], axis=0) for key in part_a
+        }
+        return _torch_batch(merged)
+
+
+def restrict_train_pairs(
+    task: TaskSpec,
+    splits: dict[int, ResiduePairSplit],
+    train_pairs_by_latent: dict[int, list | tuple],
+) -> dict[int, ResiduePairSplit]:
+    """Copy splits, replacing train pools used by ``task`` with the selected pairs.
+
+    Operations that share a modulus must be given the same selected set. Val
+    and test pools are left unchanged, and moduli this task does not use are
+    copied through for the other task.
+    """
+    normalized = {int(latent): pairs for latent, pairs in train_pairs_by_latent.items()}
+    by_mod: dict[int, tuple[tuple[int, int], ...]] = {}
+    for op in task.operations:
+        raw = normalized.get(op.latent_id)
+        if not raw:
+            raise ValueError(f"latent {op.latent_id} has no coverage pairs")
+        pairs = tuple(sorted((int(a), int(b)) for a, b in raw))
+        previous = by_mod.get(int(op.modulus))
+        if previous is not None and previous != pairs:
+            raise ValueError(
+                f"modulus {op.modulus} is shared by operations with different "
+                "coverage sets; low coverage would not stay stratified"
+            )
+        full = set(splits[int(op.modulus)].train)
+        if not set(pairs) <= full:
+            raise ValueError(
+                f"coverage pairs for latent {op.latent_id} are not in the train split"
+            )
+        by_mod[int(op.modulus)] = pairs
+    out = dict(splits)
+    for mod, pairs in by_mod.items():
+        base = splits[mod]
+        out[mod] = ResiduePairSplit(
+            modulus=base.modulus,
+            train=pairs,
+            val=base.val,
+            test=base.test,
+            ratios=base.ratios,
+            data_seed=base.data_seed,
+        )
+    return out
+
+
 class AlternatingTaskLoader:
     """Yield a full batch of A, then B, then A, ... (interleaved protocol)."""
 
