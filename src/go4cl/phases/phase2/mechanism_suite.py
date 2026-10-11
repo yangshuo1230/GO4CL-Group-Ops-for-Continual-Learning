@@ -109,10 +109,13 @@ def selected_jobs(plan, stages):
 class Stream:
     """Online packed sampling with independently restorable A/B RNG states."""
     def __init__(self, a, b, splits, batch_size, ratio, seed, source=False):
-        if batch_size < 4 or batch_size % 4:
-            raise ValueError('batch_size must be a positive multiple of four')
+        if a.n_ops != b.n_ops:
+            raise ValueError('A and B must have the same number of operations')
+        self.n_ops = a.n_ops
+        if batch_size < self.n_ops or batch_size % self.n_ops:
+            raise ValueError(f'batch_size must be a positive multiple of n_ops={self.n_ops}')
         self.builders = {'A': ContextBuilder(a, splits), 'B': ContextBuilder(b, splits)}
-        packs = batch_size // 4
+        packs = batch_size // self.n_ops
         self.na, self.nb = ((packs, 0) if source else (0, packs) if ratio == 0 else replay_pack_counts(packs, ratio))
         self.rng = {'A': np.random.default_rng(seed), 'B': np.random.default_rng(seed + 10007)}
         self.counts = {'A': 0, 'B': 0}
@@ -122,7 +125,7 @@ class Stream:
         for name, count in [('A', self.na), ('B', self.nb)]:
             if count:
                 parts.append(self.builders[name].sample_train_batch(self.rng[name], count))
-                self.counts[name] += count * 4
+                self.counts[name] += count * self.n_ops
         return {key: torch.from_numpy(np.ascontiguousarray(np.concatenate([p[key] for p in parts]))) for key in parts[0]}
 
     def state_dict(self):
